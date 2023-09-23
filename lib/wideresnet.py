@@ -91,10 +91,11 @@ class WideResNet(nn.Module):
 		self.fc = nn.Linear(nChannels[3], num_classes)
 		self.fc.bias.data.zero_()
 
-	# Additional unused arg for context set
 	def forward(self, x, cntxt):
+		n_experts = cntxt.xc.shape[0]
 		out = self.wrnbase(x)
 		out = self.fc(out)
+		out = out.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K+1]
 		return out
 	
 
@@ -126,19 +127,42 @@ class WideResNetWithContextEmbedder(nn.Module):
 		self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
 
 	def forward(self, x, cntxt):
-		embedding = self.encode(cntxt) # [E]
-		embedding = torch.stack([embedding]*x.shape[0]) # [B,E]
+		'''
+		Args:
+			x : tensor [B,3,32,32]
+			cntxt : AttrDict, with entries
+				xc : tensor [E,Nc,3,32,32]
+				yc : tensor [E,Nc]
+				mc : tensor [E,Nc]
+		'''
+		n_experts = cntxt.xc.shape[0]
+		batch_size = x.shape[0]
+		
 		x_embed = self.wrnbase(x) # [B,Dx]
-		packed = torch.cat([x_embed,embedding], -1) # [B,Dx+E]
-		logit_rej = self.rejector(packed) # [B,1]
 		logits_clf = self.fc(x_embed) # [B,K]
-		return torch.cat([logits_clf,logit_rej], -1)
+		logits_clf = logits_clf.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K]
+
+		x_embed = x_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
+		embedding = self.encode(cntxt) # [E,H]
+		embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
+		packed = torch.cat([x_embed,embedding], -1) # [B,Dx+H] -> [E,B,Dx+H]
+		logit_rej = self.rejector(packed) # [E,B,1]
+		
+		out = torch.cat([logits_clf,logit_rej], -1) # [E,B,K+1]
+		return out
 	
 	def encode(self, cntxt):
-		xc_embed = self.wrnbase(cntxt.xc) # [Nc,Dx]
-		yc_embed = F.one_hot(cntxt.yc, num_classes=self.num_classes) # [Nc,K]
-		mc_embed = F.one_hot(cntxt.mc, num_classes=self.num_classes) # [Nc,K]
-		out = torch.cat([xc_embed, yc_embed, mc_embed], -1) # [Nc,Dx+2K]
-		out = self.embed(out) # [Nc,E]
-		embedding = out.mean(0) # [E]
+		cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
+		xc_embed = self.wrnbase(cntxt_xc) # [E*Nc,Dx]
+		xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,Dx]
+
+		yc_embed = F.one_hot(cntxt.yc.view(-1), num_classes=self.num_classes) # [E*Nc,K]
+		yc_embed = yc_embed.view(cntxt.yc.shape[:2] + (self.num_classes,)) # [E,Nc,K]
+
+		mc_embed = F.one_hot(cntxt.mc.view(-1), num_classes=self.num_classes) # [E*Nc,K]
+		mc_embed = mc_embed.view(cntxt.mc.shape[:2] + (self.num_classes,)) # [E,Nc,K]
+
+		out = torch.cat([xc_embed, yc_embed, mc_embed], -1) # [E,Nc,Dx+2K]
+		out = self.embed(out) # [E,Nc,H]
+		embedding = out.mean(-2) # [E,H]
 		return embedding
