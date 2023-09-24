@@ -147,6 +147,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
 	def encode(self, cntxt):
 		cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
 		xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
+		xc_embed = xc_embed.detach() # stop gradient flow to base model
 		xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,Dx]
 
 		yc_embed = F.one_hot(cntxt.yc.view(-1), num_classes=self.num_classes) # [E*Nc,K]
