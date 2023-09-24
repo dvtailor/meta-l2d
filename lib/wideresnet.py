@@ -110,7 +110,7 @@ def build_mlp(dim_in, dim_hid, dim_out, depth):
 
 class ClassifierRejectorWithContextEmbedder(nn.Module):
 	# Instantiate with actual num_classes (not augmented)
-	def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=4, depth_rej=2):
+	def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=3):
 		super(ClassifierRejectorWithContextEmbedder, self).__init__()
 		self.base_model = base_model
 		self.num_classes = num_classes

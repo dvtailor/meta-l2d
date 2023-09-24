@@ -135,8 +135,8 @@ def evaluate(model,
 def train_epoch(iters,
 				train_loader,
 				model,
-				optimizer,
-				scheduler,
+				optimizer_lst,
+				scheduler_lst,
 				epoch,
 				expert_fns_train,
 				cntx_sampler,
@@ -188,10 +188,12 @@ def train_epoch(iters,
 		top1.update(prec1.item(), input.size(0))
 
 		# compute gradient and do SGD step
-		optimizer.zero_grad()
+		for optimizer in optimizer_lst:
+			optimizer.zero_grad()
 		loss.backward()
-		optimizer.step()
-		scheduler.step()
+		for optimizer, scheduler in zip(optimizer_lst,scheduler_lst):
+			optimizer.step()
+			scheduler.step()
 
 		# measure elapsed time
 		batch_time.update(time.time() - end)
@@ -229,10 +231,19 @@ def train(model,
 											   batch_size=config["val_batch_size"], shuffle=False, **kwargs) # shuffle=True, drop_last=True
 	model = model.to(device)
 	cudnn.benchmark = True
-	optimizer = torch.optim.SGD(model.parameters(), config["lr"],
-								momentum=0.9, nesterov=True,
-								weight_decay=config["weight_decay"])
-	scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, len(train_loader) * config["epochs"])
+
+	optimizer_base = torch.optim.SGD(model.base_model.parameters(), config["lr"], momentum=0.9, nesterov=True, weight_decay=config["weight_decay"])
+	scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader) * config["epochs"])
+
+	parameter_group = [{'params': model.fc.parameters()}]
+	if config["l2d"] == "pop":
+		parameter_group += [{'params':model.embed.parameters()}, {'params':model.rejector.parameters()}]
+	optimizer_new = torch.optim.Adam(parameter_group, lr=5e-4)
+	scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * config["epochs"])
+
+	optimizer_lst = [optimizer_base, optimizer_new]
+	scheduler_lst = [scheduler_base, scheduler_new]
+
 	# best_validation_loss = np.inf
 	# patience = 0
 	iters = 0
@@ -242,8 +253,8 @@ def train(model,
 		iters, train_loss = train_epoch(iters, 
 										train_loader, 
 										model, 
-										optimizer, 
-										scheduler, 
+										optimizer_lst, 
+										scheduler_lst, 
 										epoch,
 										expert_fns_train,
 										cntx_sampler,
@@ -358,7 +369,7 @@ if __name__ == "__main__":
 							help="specify the experiment name. Checkpoints will be saved with this name.")
 	## NEW args
 	parser.add_argument('--mode', choices=['train', 'eval'], default='train')
-	parser.add_argument("--p_out", type=float, default=0.2) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
+	parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
 	parser.add_argument("--n_cntx_per_class", type=int, default=5)
 	parser.add_argument('--l2d', choices=['single', 'pop'], default='pop')
 	parser.add_argument("--val_batch_size", type=int, default=8)
