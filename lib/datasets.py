@@ -28,7 +28,6 @@ class MyVisionDataset(VisionDataset):
         return len(self.data)
 
 
-# Sample context points in a strictly class balanced way
 # May want to extend to allow variable context set sizes
 #  i.e. min_cntx_pts_per_class, max_cntx_pts_per_class
 # Since batch size in data loader is fixed, just specify max value and then take subset
@@ -47,6 +46,7 @@ class ContextSampler():
             self.dataloader_lst.append(dataloader)
             self.data_iter_lst.append(iter(dataloader))
 
+    # Sample context points in a strictly class balanced way
     def _balanced_sample(self):
         input_lst = []
         target_lst = []
@@ -75,6 +75,10 @@ class ContextSampler():
         cntx.xc = torch.vstack(input_lst)
         cntx.yc = torch.vstack(target_lst)
         return cntx
+    
+    def reset(self):
+        for cc in range(self.n_classes):
+            self.data_iter_lst[cc] = iter(self.dataloader_lst[cc])
 
 
 def load_cifar10(data_aug=False, seed=0):

@@ -305,6 +305,7 @@ def main(config):
 	
 	if config["mode"] == 'train':
 		train(model, train_data, val_data, expert_fns_train, expert_fn_eval, cntx_sampler, config)
+		cntx_sampler.reset()
 		eval(model, test_data, expert_fn_eval, cntx_sampler, config)
 	else: # evaluation on test data
 		eval(model, test_data, expert_fn_eval, cntx_sampler, config)
@@ -345,7 +346,7 @@ if __name__ == "__main__":
 							help="specify the experiment name. Checkpoints will be saved with this name.")
 	## NEW args
 	parser.add_argument('--mode', choices=['train', 'eval'], default='train')
-	parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
+	parser.add_argument("--p_out", type=float, default=0.2) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
 	parser.add_argument("--n_cntx_per_class", type=int, default=5)
 	parser.add_argument('--l2d', choices=['single', 'pop'], default='pop')
 	parser.add_argument("--val_batch_size", type=int, default=8)
