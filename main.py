@@ -298,14 +298,14 @@ def eval(model, test_data, expert_fn_eval, cntx_sampler, config):
 
 def main(config):
     set_seed(config["seed"])
-    config["ckp_dir"] = f"./runs/gradual_overlap/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    config["ckp_dir"] = f"./runs/gradual_overlap/l2d_{config['l2d']}{'_attn' if config['attn'] else ''}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
     train_data, val_data, test_data = load_cifar10(data_aug=False, seed=config["seed"])
     config["n_classes"] = 10
 
     wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0)
     if config["l2d"] == "pop":
-        model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"])+1, n_features=wrnbase.nChannels)
+        model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"])+1, n_features=wrnbase.nChannels, with_attn=config["attn"])
     else:
         model = Classifier(wrnbase, num_classes=int(config["n_classes"])+1, n_features=wrnbase.nChannels)
 
@@ -374,6 +374,8 @@ if __name__ == "__main__":
     parser.add_argument('--l2d', choices=['single', 'pop'], default='pop')
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
+    parser.add_argument('--attn', action='store_true') # only used for l2d=pop
+    parser.set_defaults(attn=False)
     
     config = parser.parse_args().__dict__
     main(config)
