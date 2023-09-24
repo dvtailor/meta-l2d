@@ -17,7 +17,7 @@ import torch.backends.cudnn as cudnn
 from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy
 from lib.experts import synthetic_expert_overlap
-from lib.wideresnet import WideResNet, WideResNetWithContextEmbedder
+from lib.wideresnet import WideResNetBase, Classifier, ClassifierRejectorWithContextEmbedder
 from lib.datasets import load_cifar10, ContextSampler
 
 
@@ -210,6 +210,7 @@ def train(model,
 	logger = get_logger(os.path.join(config["ckp_dir"], "train.log"))
 	logger.info(f"p_out={config['p_out']}  seed={config['seed']}")
 	logger.info(config)
+	logger.info('No. of parameters: {}'.format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 	n_classes = config["n_classes"]
 	kwargs = {'num_workers': 0, 'pin_memory': True}
 	train_loader = torch.utils.data.DataLoader(train_dataset,
@@ -281,10 +282,11 @@ def main(config):
 	train_data, val_data, test_data = load_cifar10(data_aug=False, seed=config["seed"])
 	config["n_classes"] = 10
 
+	wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0)
 	if config["l2d"] == "pop":
-		model = WideResNetWithContextEmbedder(28, 3, int(config["n_classes"]), 4, dropRate=0.0)
+		model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"])+1, n_features=wrnbase.nChannels)
 	else:
-		model = WideResNet(28, 3, int(config["n_classes"]) + 1, 4, dropRate=0.0)
+		model = Classifier(wrnbase, num_classes=int(config["n_classes"])+1, n_features=wrnbase.nChannels)
 
 	expert_fns_train = []
 	for i in range(config["n_classes"]):
@@ -348,7 +350,7 @@ if __name__ == "__main__":
 	parser.add_argument('--mode', choices=['train', 'eval'], default='train')
 	parser.add_argument("--p_out", type=float, default=0.2) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
 	parser.add_argument("--n_cntx_per_class", type=int, default=5)
-	parser.add_argument('--l2d', choices=['single', 'pop'], default='pop')
+	parser.add_argument('--l2d', choices=['single', 'pop'], default='single')
 	parser.add_argument("--val_batch_size", type=int, default=8)
 	parser.add_argument("--test_batch_size", type=int, default=1)
 	

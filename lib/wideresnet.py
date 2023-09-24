@@ -81,23 +81,22 @@ class WideResNetBase(nn.Module):
 		out = F.avg_pool2d(out, 8)
 		out = out.view(-1, self.nChannels)
 		return out
+	
 
-
-class WideResNet(nn.Module):
-	def __init__(self, depth, n_channels, num_classes, widen_factor=1, dropRate=0.0):
-		super(WideResNet, self).__init__()
-		nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 * widen_factor]
-		self.wrnbase = WideResNetBase(depth, n_channels, widen_factor, dropRate)
-		self.fc = nn.Linear(nChannels[3], num_classes)
+class Classifier(nn.Module):
+	def __init__(self, base_model, num_classes, n_features):
+		super(Classifier, self).__init__()
+		self.base_model = base_model
+		self.fc = nn.Linear(n_features, num_classes)
 		self.fc.bias.data.zero_()
 
 	def forward(self, x, cntxt):
 		n_experts = cntxt.xc.shape[0]
-		out = self.wrnbase(x)
+		out = self.base_model(x)
 		out = self.fc(out)
 		out = out.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K+1]
 		return out
-	
+
 
 def build_mlp(dim_in, dim_hid, dim_out, depth):
     if depth==1:
@@ -111,18 +110,14 @@ def build_mlp(dim_in, dim_hid, dim_out, depth):
     return nn.Sequential(*modules)
 
 
-class WideResNetWithContextEmbedder(nn.Module):
+class ClassifierRejectorWithContextEmbedder(nn.Module):
 	# Instantiate with actual num_classes (not augmented)
-	def __init__(self, depth, n_channels, num_classes, widen_factor=1, dropRate=0.0,
-			  		dim_hid=128, depth_embed=4, depth_rej=2):
-		super(WideResNetWithContextEmbedder, self).__init__()
-		nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 * widen_factor]
-		n_features = nChannels[3]
+	def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=4, depth_rej=2):
+		super(ClassifierRejectorWithContextEmbedder, self).__init__()
+		self.base_model = base_model
 		self.num_classes = num_classes
-		self.wrnbase = WideResNetBase(depth, n_channels, widen_factor, dropRate)
 		self.fc = nn.Linear(n_features, num_classes)
 		self.fc.bias.data.zero_()
-		# NEW
 		self.embed = build_mlp(n_features+2*num_classes, dim_hid, dim_hid, depth_embed)
 		self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
 
@@ -138,7 +133,7 @@ class WideResNetWithContextEmbedder(nn.Module):
 		n_experts = cntxt.xc.shape[0]
 		batch_size = x.shape[0]
 		
-		x_embed = self.wrnbase(x) # [B,Dx]
+		x_embed = self.base_model(x) # [B,Dx]
 		logits_clf = self.fc(x_embed) # [B,K]
 		logits_clf = logits_clf.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K]
 
@@ -153,7 +148,7 @@ class WideResNetWithContextEmbedder(nn.Module):
 	
 	def encode(self, cntxt):
 		cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
-		xc_embed = self.wrnbase(cntxt_xc) # [E*Nc,Dx]
+		xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
 		xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,Dx]
 
 		yc_embed = F.one_hot(cntxt.yc.view(-1), num_classes=self.num_classes) # [E*Nc,K]

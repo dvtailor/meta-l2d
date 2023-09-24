@@ -122,3 +122,39 @@ def load_cifar10(data_aug=False, seed=0):
     test_dataset = datasets.CIFAR10(root=ROOT+'/data', train=False, download=True, transform=transform_test)
 
     return train_dataset, val_dataset, test_dataset
+
+
+# # Version without class-balanced context sets
+# # Should change args (replace cntx_pts_per_class, n_classes)
+# class ContextSampler():
+#     def __init__(self, images, labels, transform, cntx_pts_per_class=5, n_classes=10, device='cpu', **kwargs):
+#         self.n_cntx_pts = cntx_pts_per_class * n_classes
+#         self.device = device
+
+#         dataset = MyVisionDataset(images, labels, transform)
+#         self.dataloader = torch.utils.data.DataLoader(dataset, batch_size=self.n_cntx_pts, shuffle=True, drop_last=True, **kwargs) 
+#         self.data_iter = iter(self.dataloader)
+
+#     def _sample_once(self):
+#         try:
+#             input, target = next(self.data_iter)
+#         except StopIteration:
+#             self.data_iter = iter(self.dataloader)
+#             input, target = next(self.data_iter)
+#         input, target = input.to(self.device), target.to(self.device)
+#         return input, target
+
+#     def sample(self, n_experts=1):
+#         input_lst = []
+#         target_lst = []
+#         for _ in range(n_experts):
+#             input, target = self._sample_once()
+#             input_lst.append(input.unsqueeze(0))
+#             target_lst.append(target.unsqueeze(0))
+#         cntx = AttrDict()
+#         cntx.xc = torch.vstack(input_lst)
+#         cntx.yc = torch.vstack(target_lst)
+#         return cntx
+    
+#     def reset(self):
+#         self.data_iter = iter(self.dataloader)
