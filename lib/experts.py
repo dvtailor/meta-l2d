@@ -9,24 +9,24 @@ from lib.datasets import MyVisionDataset
 
 # expert correct in class_oracle with prob. p_in; correct on other classes with prob. p_out
 def synthetic_expert_overlap(images, labels, class_oracle=None, n_classes=10, p_in=1.0, p_out=0.1):
-	if class_oracle is None:
-		class_oracle = random.randint(0, n_classes-1)
-	batch_size = labels.size()[0]
-	outs = [0] * batch_size
-	for i in range(0, batch_size):
-		if labels[i].item() == class_oracle:
-			coin_flip = np.random.binomial(1, p_in)
-			if coin_flip == 1:
-				outs[i] = labels[i].item()
-			if coin_flip == 0:
-				outs[i] = random.randint(0, n_classes-1)
-		else:
-			coin_flip = np.random.binomial(1, p_out)
-			if coin_flip == 1:
-				outs[i] = labels[i].item()
-			if coin_flip == 0:
-				outs[i] = random.randint(0, n_classes-1)
-	return outs
+    if class_oracle is None:
+        class_oracle = random.randint(0, n_classes-1)
+    batch_size = labels.size()[0]
+    outs = [0] * batch_size
+    for i in range(0, batch_size):
+        if labels[i].item() == class_oracle:
+            coin_flip = np.random.binomial(1, p_in)
+            if coin_flip == 1:
+                outs[i] = labels[i].item()
+            if coin_flip == 0:
+                outs[i] = random.randint(0, n_classes-1)
+        else:
+            coin_flip = np.random.binomial(1, p_out)
+            if coin_flip == 1:
+                outs[i] = labels[i].item()
+            if coin_flip == 0:
+                outs[i] = random.randint(0, n_classes-1)
+    return outs
 
 
 # def extract_expert_cntxt_pts(images, labels, transform, expert_fn_lst, n_experts=10, n_classes=10, n_cntx_per_class=5, device='cpu'):
@@ -61,5 +61,5 @@ def synthetic_expert_overlap(images, labels, class_oracle=None, n_classes=10, p_
 # 	expert_cntxt.xc = torch.vstack(cntxt_xc)
 # 	expert_cntxt.yc = torch.vstack(cntxt_yc)
 # 	expert_cntxt.mc = torch.vstack(cntxt_mc)
-	
+    
 # 	return expert_cntxt, train_data_new
