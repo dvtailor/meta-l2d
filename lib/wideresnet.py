@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from lib.attention import MultiHeadAttn, SelfAttn
+
 class BasicBlock(nn.Module):
     def __init__(self, in_planes, out_planes, stride, dropRate=0.0):
         super(BasicBlock, self).__init__()
@@ -89,6 +91,10 @@ class Classifier(nn.Module):
         self.base_model = base_model
         self.fc = nn.Linear(n_features, num_classes)
         self.fc.bias.data.zero_()
+        self.params = nn.ModuleDict({
+            'base': nn.ModuleList([self.base_model]),
+            'clf' : nn.ModuleList([self.fc])
+        })
 
     def forward(self, x):
         out = self.base_model(x)
@@ -110,14 +116,30 @@ def build_mlp(dim_in, dim_hid, dim_out, depth):
 
 class ClassifierRejectorWithContextEmbedder(nn.Module):
     # Instantiate with actual num_classes (not augmented)
-    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=3):
+    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=3, with_attn=False):
         super(ClassifierRejectorWithContextEmbedder, self).__init__()
         self.base_model = base_model
         self.num_classes = num_classes
+        self.with_attn = with_attn
         self.fc = nn.Linear(n_features, num_classes)
         self.fc.bias.data.zero_()
-        self.embed = build_mlp(n_features+2*num_classes, dim_hid, dim_hid, depth_embed)
         self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
+
+        rej_mdl_lst = [self.rejector]
+        if not with_attn:
+            self.embed = build_mlp(n_features+2*num_classes, dim_hid, dim_hid, depth_embed)
+            rej_mdl_lst += [self.embed]
+        else:
+            self.embed = build_mlp(n_features+2*num_classes, dim_hid, dim_hid, depth_embed-2)
+            self.self_attn = SelfAttn(dim_hid, dim_hid)
+            self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
+            rej_mdl_lst += [self.embed, self.self_attn, self.attn]
+        
+        self.params = nn.ModuleDict({
+            'base': nn.ModuleList([self.base_model]),
+            'clf' : nn.ModuleList([self.fc]),
+            'rej': nn.ModuleList(rej_mdl_lst)
+        })
 
     def forward(self, x, cntxt):
         '''
@@ -129,22 +151,23 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
                 mc : tensor [E,Nc]
         '''
         n_experts = cntxt.xc.shape[0]
-        batch_size = x.shape[0]
         
         x_embed = self.base_model(x) # [B,Dx]
         logits_clf = self.fc(x_embed) # [B,K]
         logits_clf = logits_clf.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K]
 
+        embedding = self.encode(cntxt, x) # [E,B,H]
         x_embed = x_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
-        embedding = self.encode(cntxt) # [E,H]
-        embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
         packed = torch.cat([x_embed,embedding], -1) # [B,Dx+H] -> [E,B,Dx+H]
         logit_rej = self.rejector(packed) # [E,B,1]
         
         out = torch.cat([logits_clf,logit_rej], -1) # [E,B,K+1]
         return out
     
-    def encode(self, cntxt):
+    def encode(self, cntxt, xt):
+        n_experts = cntxt.xc.shape[0]
+        batch_size = xt.shape[0]
+
         cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
         xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
         xc_embed = xc_embed.detach() # stop gradient flow to base model
@@ -158,5 +181,15 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
 
         out = torch.cat([xc_embed, yc_embed, mc_embed], -1) # [E,Nc,Dx+2K]
         out = self.embed(out) # [E,Nc,H]
-        embedding = out.mean(-2) # [E,H]
+
+        if not self.with_attn:
+            embedding = out.mean(-2) # [E,H]
+            embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
+        else:
+            out = self.self_attn(out) # [E,Nc,H]
+            xt_embed = self.base_model(xt) # [B,Dx]
+            xt_embed = xt_embed.detach() # stop gradients flowing
+            xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
+            embedding = self.attn(xt_embed, xc_embed, out) # [E,B,H]
+        
         return embedding

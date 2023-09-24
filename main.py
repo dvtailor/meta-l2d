@@ -232,12 +232,12 @@ def train(model,
     model = model.to(device)
     cudnn.benchmark = True
 
-    optimizer_base = torch.optim.SGD(model.base_model.parameters(), config["lr"], momentum=0.9, nesterov=True, weight_decay=config["weight_decay"])
+    optimizer_base = torch.optim.SGD(model.params.base.parameters(), config["lr"], momentum=0.9, nesterov=True, weight_decay=config["weight_decay"])
     scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader) * config["epochs"])
 
-    parameter_group = [{'params': model.fc.parameters()}]
+    parameter_group = [{'params': model.params.clf.parameters()}]
     if config["l2d"] == "pop":
-        parameter_group += [{'params':model.embed.parameters()}, {'params':model.rejector.parameters()}]
+        parameter_group += [{'params':model.params.rej.parameters()}]
     optimizer_new = torch.optim.Adam(parameter_group, lr=5e-4)
     scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * config["epochs"])
 
