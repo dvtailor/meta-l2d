@@ -90,11 +90,9 @@ class Classifier(nn.Module):
 		self.fc = nn.Linear(n_features, num_classes)
 		self.fc.bias.data.zero_()
 
-	def forward(self, x, cntxt):
-		n_experts = cntxt.xc.shape[0]
+	def forward(self, x):
 		out = self.base_model(x)
 		out = self.fc(out)
-		out = out.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K+1]
 		return out
 
 

@@ -64,12 +64,17 @@ def evaluate(model,
 			images, labels = data
 			images, labels = images.to(device), labels.to(device)
 			batch_size = len(images)
-			# sample expert predictions for context
-			expert_cntx = cntx_sampler.sample(n_experts=1)
-			exp_preds = torch.tensor(expert_fn(expert_cntx.xc.squeeze(0), expert_cntx.yc.squeeze()), device=device)
-			expert_cntx.mc = exp_preds.unsqueeze(0)
-			
-			outputs = model(images, expert_cntx).squeeze(0)
+
+			if config["l2d"] == 'pop':
+				# sample expert predictions for context
+				expert_cntx = cntx_sampler.sample(n_experts=1)
+				exp_preds = torch.tensor(expert_fn(expert_cntx.xc.squeeze(0), expert_cntx.yc.squeeze()), device=device)
+				expert_cntx.mc = exp_preds.unsqueeze(0)
+				
+				outputs = model(images, expert_cntx).squeeze(0)
+			else:
+				outputs = model(images)
+
 			outputs = F.softmax(outputs, dim=-1)
 			_, predicted = torch.max(outputs.data, -1)
 			
@@ -151,18 +156,23 @@ def train_epoch(iters,
 	for i, (input, target) in enumerate(train_loader):
 		target = target.to(device)
 		input = input.to(device)
-
 		n_experts = len(expert_fns_train)
-		expert_cntx = cntx_sampler.sample(n_experts=n_experts)
 
-		# sample expert predictions for context
-		exp_preds_cntx = []
-		for idx_exp, expert_fn in enumerate(expert_fns_train):
-			preds = torch.tensor(expert_fn(expert_cntx.xc[idx_exp], expert_cntx.yc[idx_exp]), device=device)
-			exp_preds_cntx.append(preds.unsqueeze(0))
-		expert_cntx.mc = torch.vstack(exp_preds_cntx)
+		if config["l2d"] == 'pop':
+			expert_cntx = cntx_sampler.sample(n_experts=n_experts)
 
-		logits = model(input,expert_cntx) # [E,B,K+1]
+			# sample expert predictions for context
+			exp_preds_cntx = []
+			for idx_exp, expert_fn in enumerate(expert_fns_train):
+				preds = torch.tensor(expert_fn(expert_cntx.xc[idx_exp], expert_cntx.yc[idx_exp]), device=device)
+				exp_preds_cntx.append(preds.unsqueeze(0))
+			expert_cntx.mc = torch.vstack(exp_preds_cntx)
+
+			logits = model(input,expert_cntx) # [E,B,K+1]
+		else:
+			logits = model(input) # [B,K+1]
+			logits = logits.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K+1]
+
 		output = F.softmax(logits, dim=-1) # [E,B,K+1]
 		loss = 0
 		for idx_exp, expert_fn in enumerate(expert_fns_train):
@@ -350,7 +360,7 @@ if __name__ == "__main__":
 	parser.add_argument('--mode', choices=['train', 'eval'], default='train')
 	parser.add_argument("--p_out", type=float, default=0.2) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
 	parser.add_argument("--n_cntx_per_class", type=int, default=5)
-	parser.add_argument('--l2d', choices=['single', 'pop'], default='single')
+	parser.add_argument('--l2d', choices=['single', 'pop'], default='pop')
 	parser.add_argument("--val_batch_size", type=int, default=8)
 	parser.add_argument("--test_batch_size", type=int, default=1)
 	
