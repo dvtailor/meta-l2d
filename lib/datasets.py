@@ -60,7 +60,7 @@ class ContextSampler():
             target_lst.append(target)
         perm = torch.randperm(self.cntx_pts_per_class*self.n_classes)
         input_all = torch.vstack(input_lst)[perm]
-        target_all = torch.concatenate(target_lst)[perm]
+        target_all = torch.cat(target_lst)[perm]
         input_all, target_all = input_all.to(self.device), target_all.to(self.device)
         return input_all, target_all
 
