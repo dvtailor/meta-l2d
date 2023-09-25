@@ -116,7 +116,7 @@ def build_mlp(dim_in, dim_hid, dim_out, depth):
 
 class ClassifierRejectorWithContextEmbedder(nn.Module):
     # Instantiate with actual num_classes (not augmented)
-    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=3, with_attn=False):
+    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=4, with_attn=False):
         super(ClassifierRejectorWithContextEmbedder, self).__init__()
         self.base_model = base_model
         self.num_classes = num_classes
@@ -170,7 +170,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
 
         cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
         xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
-        xc_embed = xc_embed.detach() # stop gradient flow to base model
+        # xc_embed = xc_embed.detach() # stop gradient flow to base model
         xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,Dx]
 
         yc_embed = F.one_hot(cntxt.yc.view(-1), num_classes=self.num_classes) # [E*Nc,K]
@@ -188,7 +188,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         else:
             out = self.self_attn(out) # [E,Nc,H]
             xt_embed = self.base_model(xt) # [B,Dx]
-            xt_embed = xt_embed.detach() # stop gradients flowing
+            # xt_embed = xt_embed.detach() # stop gradients flowing
             xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
             embedding = self.attn(xt_embed, xc_embed, out) # [E,B,H]
         

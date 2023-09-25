@@ -238,7 +238,7 @@ def train(model,
     parameter_group = [{'params': model.params.clf.parameters()}]
     if config["l2d"] == "pop":
         parameter_group += [{'params':model.params.rej.parameters()}]
-    optimizer_new = torch.optim.Adam(parameter_group, lr=5e-4)
+    optimizer_new = torch.optim.Adam(parameter_group, lr=1e-1) #5e-4
     scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * config["epochs"])
 
     optimizer_lst = [optimizer_base, optimizer_new]
