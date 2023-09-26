@@ -127,10 +127,10 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
 
         rej_mdl_lst = [self.rejector]
         if not with_attn:
-            self.embed = build_mlp(n_features+2*num_classes, dim_hid, dim_hid, depth_embed)
+            self.embed = build_mlp(2*num_classes, dim_hid, dim_hid, depth_embed)
             rej_mdl_lst += [self.embed]
         else:
-            self.embed = build_mlp(n_features+2*num_classes, dim_hid, dim_hid, depth_embed-2)
+            self.embed = build_mlp(2*num_classes, dim_hid, dim_hid, depth_embed-2)
             self.self_attn = SelfAttn(dim_hid, dim_hid)
             self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
             rej_mdl_lst += [self.embed, self.self_attn, self.attn]
@@ -170,7 +170,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
 
         cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
         xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
-        # xc_embed = xc_embed.detach() # stop gradient flow to base model
+        xc_embed = xc_embed.detach() # stop gradient flow to base model
         xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,Dx]
 
         yc_embed = F.one_hot(cntxt.yc.view(-1), num_classes=self.num_classes) # [E*Nc,K]
@@ -179,7 +179,8 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         mc_embed = F.one_hot(cntxt.mc.view(-1), num_classes=self.num_classes) # [E*Nc,K]
         mc_embed = mc_embed.view(cntxt.mc.shape[:2] + (self.num_classes,)) # [E,Nc,K]
 
-        out = torch.cat([xc_embed, yc_embed, mc_embed], -1) # [E,Nc,Dx+2K]
+        out = torch.cat([yc_embed, mc_embed], -1) # [E,Nc,2K]
+        out = out.float()
         out = self.embed(out) # [E,Nc,H]
 
         if not self.with_attn:
@@ -188,7 +189,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         else:
             out = self.self_attn(out) # [E,Nc,H]
             xt_embed = self.base_model(xt) # [B,Dx]
-            # xt_embed = xt_embed.detach() # stop gradients flowing
+            xt_embed = xt_embed.detach() # stop gradients flowing
             xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
             embedding = self.attn(xt_embed, xc_embed, out) # [E,B,H]
         
