@@ -161,4 +161,5 @@ cython_debug/
 
 # Our additions
 data
-runs
+*.json
+*.pt
