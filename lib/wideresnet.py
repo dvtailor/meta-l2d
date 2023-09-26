@@ -89,7 +89,7 @@ class Classifier(nn.Module):
     def __init__(self, base_model, num_classes, n_features):
         super(Classifier, self).__init__()
         self.base_model = base_model
-        self.fc = nn.Linear(n_features, num_classes)
+        self.fc = nn.Linear(n_features, num_classes+1)
         self.fc.bias.data.zero_()
         self.params = nn.ModuleDict({
             'base': nn.ModuleList([self.base_model]),

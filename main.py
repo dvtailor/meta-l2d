@@ -238,7 +238,7 @@ def train(model,
     parameter_group = [{'params': model.params.clf.parameters()}]
     if config["l2d"] == "pop":
         parameter_group += [{'params':model.params.rej.parameters()}]
-    optimizer_new = torch.optim.Adam(parameter_group, lr=1e-1) #5e-4
+    optimizer_new = torch.optim.Adam(parameter_group, lr=1e-2) #5e-4
     scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * config["epochs"])
 
     optimizer_lst = [optimizer_base, optimizer_new]
@@ -309,9 +309,9 @@ def main(config):
         config["l2d"] = "pop"
     wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0)
     if config["l2d"] == "pop":
-        model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"])+1, n_features=wrnbase.nChannels, with_attn=with_attn)
+        model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_attn=with_attn)
     else:
-        model = Classifier(wrnbase, num_classes=int(config["n_classes"])+1, n_features=wrnbase.nChannels)
+        model = Classifier(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels)
 
     expert_fns_train = []
     for i in range(config["n_classes"]):
@@ -375,7 +375,7 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     parser.add_argument("--n_cntx_per_class", type=int, default=5)
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop_attn')
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
     # parser.add_argument('--attn', action='store_true') # only used for l2d=pop
