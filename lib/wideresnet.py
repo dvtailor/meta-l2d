@@ -126,15 +126,15 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
         self.embed_class = nn.Embedding(num_classes, dim_hid)
 
-        rej_mdl_lst = [self.rejector, self.embed_class]
-        if not with_attn:
-            self.embed = build_mlp(2*dim_hid, dim_hid, dim_hid, depth_embed)
-            rej_mdl_lst += [self.embed]
-        else:
-            self.embed = build_mlp(2*dim_hid, dim_hid, dim_hid, depth_embed-2)
-            self.self_attn = SelfAttn(dim_hid, dim_hid)
+        self.embed = nn.Sequential(
+            build_mlp(2*dim_hid, dim_hid, dim_hid, depth_embed),
+            nn.ReLU(True),
+            SelfAttn(dim_hid, dim_hid)
+        )
+        rej_mdl_lst = [self.rejector, self.embed_class, self.embed]
+        if with_attn:
             self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
-            rej_mdl_lst += [self.embed, self.self_attn, self.attn]
+            rej_mdl_lst += [self.attn]
         
         self.params = nn.ModuleDict({
             'base': nn.ModuleList([self.base_model]),
@@ -190,7 +190,6 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
             embedding = out.mean(-2) # [E,H]
             embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
         else:
-            out = self.self_attn(out) # [E,Nc,H]
             xt_embed = self.base_model(xt) # [B,Dx]
             xt_embed = xt_embed.detach() # stop gradients flowing
             xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
