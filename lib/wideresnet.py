@@ -150,15 +150,18 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.model_pretrained.eval()
         self.affine = nn.Linear(dim_resnet18_out, dim_hid, bias=False) # project down pretrained feature extractor
 
-        self.embed = nn.Sequential(
-            build_mlp(3*dim_hid, dim_hid, dim_hid, depth_embed),
-            nn.ReLU(True),
-            SelfAttn(dim_hid, dim_hid)
-        )
-        rej_mdl_lst = [self.rejector, self.embed_class, self.embed, self.affine]
-        if with_attn:
+        rej_mdl_lst = [self.rejector, self.embed_class, self.affine]
+        if not with_attn:
+            self.embed = build_mlp(3*dim_hid, dim_hid, dim_hid, depth_embed)
+            rej_mdl_lst += [self.embed]
+        else:
+            self.embed = nn.Sequential(
+                build_mlp(3*dim_hid, dim_hid, dim_hid, depth_embed),
+                nn.ReLU(True),
+                SelfAttn(dim_hid, dim_hid)
+            )
             self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
-            rej_mdl_lst += [self.attn]
+            rej_mdl_lst += [self.embed, self.attn]
         
         self.params = nn.ModuleDict({
             'base': nn.ModuleList([self.base_model]),
@@ -194,8 +197,6 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         batch_size = xt.shape[0]
 
         cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
-        # xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
-        # xc_embed = xc_embed.detach() # stop gradient flow to base model
         xc_embed = self.model_pretrained(self.transform_imagenet(cntxt_xc)).data # [E*Nc,512]
         xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,512]
         xc_embed = self.affine(xc_embed) # [E,Nc,H]
@@ -210,8 +211,6 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
             embedding = out.mean(-2) # [E,H]
             embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
         else:
-            # xt_embed = self.base_model(xt) # [B,Dx]
-            # xt_embed = xt_embed.detach() # stop gradients flowing
             xt_embed = self.model_pretrained(self.transform_imagenet(xt)).data # [B,512]
             xt_embed = self.affine(xt_embed) # [B,H]
             xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,H]

@@ -298,7 +298,7 @@ def eval(model, test_data, expert_fn_eval, cntx_sampler, config):
 
 def main(config):
     set_seed(config["seed"])
-    config["ckp_dir"] = f"./runs/gradual_overlap_new/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # NOTE
+    config["ckp_dir"] = f"./runs/gradual_overlap/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # NOTE
     os.makedirs(config["ckp_dir"], exist_ok=True)
     train_data, val_data, test_data = load_cifar10(data_aug=False, seed=config["seed"])
     config["n_classes"] = 10
