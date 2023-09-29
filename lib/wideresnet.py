@@ -89,9 +89,10 @@ class WideResNetBase(nn.Module):
     
 
 class Classifier(nn.Module):
-    def __init__(self, base_model, num_classes, n_features):
+    def __init__(self, base_model, num_classes, n_features, with_softmax=True):
         super(Classifier, self).__init__()
         self.base_model = base_model
+        self.with_softmax = with_softmax
         self.fc = nn.Linear(n_features, num_classes+1)
         self.fc.bias.data.zero_()
         self.params = nn.ModuleDict({
@@ -102,6 +103,8 @@ class Classifier(nn.Module):
     def forward(self, x):
         out = self.base_model(x)
         out = self.fc(out)
+        if self.with_softmax:
+            out = F.softmax(out, dim=-1)
         return out
 
 
@@ -127,11 +130,12 @@ class Identity(nn.Module):
 
 class ClassifierRejectorWithContextEmbedder(nn.Module):
     # Instantiate with actual num_classes (not augmented)
-    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=4, with_attn=False):
+    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=4, with_attn=False, with_softmax=True):
         super(ClassifierRejectorWithContextEmbedder, self).__init__()
         self.base_model = base_model
         self.num_classes = num_classes
         self.with_attn = with_attn
+        self.with_softmax = with_softmax
         self.fc = nn.Linear(n_features, num_classes)
         self.fc.bias.data.zero_()
         self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
@@ -190,6 +194,8 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         logit_rej = self.rejector(packed) # [E,B,1]
         
         out = torch.cat([logits_clf,logit_rej], -1) # [E,B,K+1]
+        if self.with_softmax:
+            out = F.softmax(out, dim=-1)
         return out
     
     def encode(self, cntxt, xt):

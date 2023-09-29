@@ -15,7 +15,7 @@ import torch.backends.cudnn as cudnn
 
 # local imports
 from lib.utils import AverageMeter, accuracy, get_logger
-from lib.losses import cross_entropy
+from lib.losses import cross_entropy, ova
 from lib.experts import synthetic_expert_overlap
 from lib.wideresnet import WideResNetBase, Classifier, ClassifierRejectorWithContextEmbedder
 from lib.datasets import load_cifar10, ContextSampler
@@ -35,6 +35,7 @@ def set_seed(seed):
 
 def evaluate(model,
             expert_fn,
+            loss_fn,
             cntx_sampler,
             n_classes,
             data_loader,
@@ -75,7 +76,6 @@ def evaluate(model,
             else:
                 outputs = model(images)
 
-            outputs = F.softmax(outputs, dim=-1)
             _, predicted = torch.max(outputs.data, -1)
             
             # sample expert predictions for evaluation data and evaluate costs
@@ -89,7 +89,7 @@ def evaluate(model,
             m = torch.tensor(m)
             m = m.to(device)
 
-            loss = cross_entropy(outputs, m, labels, n_classes) # single-expert L2D loss
+            loss = loss_fn(outputs, m, labels, n_classes) # single-expert L2D loss
             losses.append(loss.item())
 
             for i in range(0, batch_size):
@@ -139,6 +139,7 @@ def train_epoch(iters,
                 scheduler_lst,
                 epoch,
                 expert_fns_train,
+                loss_fn,
                 cntx_sampler,
                 n_classes,
                 config,
@@ -168,22 +169,21 @@ def train_epoch(iters,
                 exp_preds_cntx.append(preds.unsqueeze(0))
             expert_cntx.mc = torch.vstack(exp_preds_cntx)
 
-            logits = model(input,expert_cntx) # [E,B,K+1]
+            outputs = model(input,expert_cntx) # [E,B,K+1]
         else:
-            logits = model(input) # [B,K+1]
-            logits = logits.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K+1]
-
-        output = F.softmax(logits, dim=-1) # [E,B,K+1]
+            outputs = model(input) # [B,K+1]
+            outputs = outputs.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K+1]
+        
         loss = 0
         for idx_exp, expert_fn in enumerate(expert_fns_train):
             m = torch.tensor(expert_fn(input, target), device=device)
             costs = (m==target).int()
-            loss += cross_entropy(output[idx_exp], costs, target, n_classes) # loss per expert
+            loss += loss_fn(outputs[idx_exp], costs, target, n_classes) # loss per expert
         loss /= len(expert_fns_train)
         epoch_train_loss.append(loss.item())
 
         # measure accuracy and record loss
-        prec1 = accuracy(logits.data[0,:,:10], target, topk=(1,))[0] # just measures clf accuracy
+        prec1 = accuracy(outputs.data[0,:,:10], target, topk=(1,))[0] # just measures clf accuracy
         losses.update(loss.data.item(), input.size(0))
         top1.update(prec1.item(), input.size(0))
 
@@ -215,6 +215,7 @@ def train_epoch(iters,
 def train(model,
           train_dataset,
           validation_dataset,
+          loss_fn,
           expert_fns_train,
           expert_fn_eval,
           cntx_sampler,
@@ -257,12 +258,14 @@ def train(model,
                                         scheduler_lst, 
                                         epoch,
                                         expert_fns_train,
+                                        loss_fn,
                                         cntx_sampler,
                                         n_classes,
                                         config,
                                         logger)
         metrics = evaluate(model,
                            expert_fn_eval,
+                           loss_fn,
                            cntx_sampler,
                            n_classes,
                            valid_loader,
@@ -287,21 +290,29 @@ def train(model,
         # 	break	
 
 
-def eval(model, test_data, expert_fn_eval, cntx_sampler, config):
+def eval(model, test_data, loss_fn, expert_fn_eval, cntx_sampler, config):
     model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
     model = model.to(device)
     kwargs = {'num_workers': 0, 'pin_memory': True}
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
     logger = get_logger(os.path.join(config["ckp_dir"], "eval.log"))
-    evaluate(model, expert_fn_eval, cntx_sampler, config["n_classes"], test_loader, config, logger)
+    evaluate(model, expert_fn_eval, loss_fn, cntx_sampler, config["n_classes"], test_loader, config, logger)
 
 
 def main(config):
     set_seed(config["seed"])
-    config["ckp_dir"] = f"./runs/gradual_overlap/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # NOTE
+    # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
+    config["ckp_dir"] = f"./runs/gradual_overlap/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
     train_data, val_data, test_data = load_cifar10(data_aug=False, seed=config["seed"])
     config["n_classes"] = 10
+
+    with_softmax = False
+    if config["loss_type"] == 'softmax':
+        loss_fn = cross_entropy
+        with_softmax = True
+    else: # ova
+        loss_fn = ova
 
     with_attn=False
     if len(config["l2d"].split("_"))==2:
@@ -309,9 +320,10 @@ def main(config):
         config["l2d"] = "pop"
     wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0)
     if config["l2d"] == "pop":
-        model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_attn=with_attn)
+        model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
+                                                      with_attn=with_attn, with_softmax=with_softmax)
     else:
-        model = Classifier(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels)
+        model = Classifier(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax)
 
     expert_fns_train = []
     for i in range(config["n_classes"]):
@@ -331,11 +343,11 @@ def main(config):
                                     n_classes=config["n_classes"], device=device, **kwargs)
     
     if config["mode"] == 'train':
-        train(model, train_data, val_data, expert_fns_train, expert_fn_eval, cntx_sampler, config)
+        train(model, train_data, val_data, loss_fn, expert_fns_train, expert_fn_eval, cntx_sampler, config)
         cntx_sampler.reset()
-        eval(model, test_data, expert_fn_eval, cntx_sampler, config)
+        eval(model, test_data, loss_fn, expert_fn_eval, cntx_sampler, config)
     else: # evaluation on test data
-        eval(model, test_data, expert_fn_eval, cntx_sampler, config)
+        eval(model, test_data, loss_fn, expert_fn_eval, cntx_sampler, config)
 
 
 if __name__ == "__main__":
@@ -350,6 +362,7 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     parser.add_argument("--experiment_name", type=str, default="default",
                             help="specify the experiment name. Checkpoints will be saved with this name.")
+    parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='ova')
     ## NEW args
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
