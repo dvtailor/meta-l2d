@@ -137,31 +137,31 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
         self.embed_class = nn.Embedding(num_classes, dim_hid)
 
-        # NB: just for testing purposes (shouldn't hard-code dataset scaling in ClassifierRejector)
-        unnormalize_cifar10 = UnNormalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
-                                          std=[x / 255.0 for x in [63.0, 62.1, 66.7]])
-        weights_pretrained = ResNet18_Weights.IMAGENET1K_V1
-        self.transform_imagenet = transforms.Compose([unnormalize_cifar10,weights_pretrained.transforms()])
-        self.model_pretrained = resnet18(weights=weights_pretrained)
-        for param in self.model_pretrained.parameters():
-            param.requires_grad = False
-        dim_resnet18_out = self.model_pretrained.fc.in_features
-        self.model_pretrained.fc = Identity() # override final layer to instead output penultimate activations (dim=512)
-        self.model_pretrained.eval()
-        self.affine = nn.Linear(dim_resnet18_out, dim_hid, bias=False) # project down pretrained feature extractor
+        # # NB: just for testing purposes (shouldn't hard-code dataset scaling in ClassifierRejector)
+        # unnormalize_cifar10 = UnNormalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
+        #                                   std=[x / 255.0 for x in [63.0, 62.1, 66.7]])
+        # weights_pretrained = ResNet18_Weights.IMAGENET1K_V1
+        # self.transform_imagenet = transforms.Compose([unnormalize_cifar10,weights_pretrained.transforms()])
+        # self.model_pretrained = resnet18(weights=weights_pretrained)
+        # for param in self.model_pretrained.parameters():
+        #     param.requires_grad = False
+        # dim_resnet18_out = self.model_pretrained.fc.in_features
+        # self.model_pretrained.fc = Identity() # override final layer to instead output penultimate activations (dim=512)
+        # self.model_pretrained.eval()
+        # self.affine = nn.Linear(dim_resnet18_out, dim_hid, bias=False) # project down pretrained feature extractor
 
-        rej_mdl_lst = [self.rejector, self.embed_class, self.affine]
-        if not with_attn:
-            self.embed = build_mlp(3*dim_hid, dim_hid, dim_hid, depth_embed)
-            rej_mdl_lst += [self.embed]
-        else:
-            self.embed = nn.Sequential(
-                build_mlp(3*dim_hid, dim_hid, dim_hid, depth_embed),
-                nn.ReLU(True),
-                SelfAttn(dim_hid, dim_hid)
-            )
-            self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
-            rej_mdl_lst += [self.embed, self.attn]
+        rej_mdl_lst = [self.rejector, self.embed_class] #self.affine
+        # if not with_attn:
+        self.embed = build_mlp(2*dim_hid, dim_hid, dim_hid, depth_embed)
+        rej_mdl_lst += [self.embed]
+        # else:
+        #     self.embed = nn.Sequential(
+        #         build_mlp(3*dim_hid, dim_hid, dim_hid, depth_embed),
+        #         nn.ReLU(True),
+        #         SelfAttn(dim_hid, dim_hid)
+        #     )
+        #     self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
+        #     rej_mdl_lst += [self.embed, self.attn]
         
         self.params = nn.ModuleDict({
             'base': nn.ModuleList([self.base_model]),
@@ -186,7 +186,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
 
         embedding = self.encode(cntxt, x) # [E,B,H]
         x_embed = x_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
-        packed = torch.cat([x_embed,embedding], -1) # [B,Dx+H] -> [E,B,Dx+H]
+        packed = torch.cat([x_embed,embedding], -1) # [E,B,Dx+H]
         logit_rej = self.rejector(packed) # [E,B,1]
         
         out = torch.cat([logits_clf,logit_rej], -1) # [E,B,K+1]
@@ -196,24 +196,24 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         n_experts = cntxt.xc.shape[0]
         batch_size = xt.shape[0]
 
-        cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
-        xc_embed = self.model_pretrained(self.transform_imagenet(cntxt_xc)).data # [E*Nc,512]
-        xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,512]
-        xc_embed = self.affine(xc_embed) # [E,Nc,H]
+        # cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
+        # xc_embed = self.model_pretrained(self.transform_imagenet(cntxt_xc)).data # [E*Nc,512]
+        # xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,512]
+        # xc_embed = self.affine(xc_embed) # [E,Nc,H]
 
         yc_embed = self.embed_class(cntxt.yc) # [E,Nc,H]
         mc_embed = self.embed_class(cntxt.mc) # [E,Nc,H]
 
-        out = torch.cat([xc_embed,yc_embed,mc_embed], -1) # [E,Nc,3H]
+        out = torch.cat([yc_embed,mc_embed], -1) # [E,Nc,2H]
         out = self.embed(out) # [E,Nc,H]
 
-        if not self.with_attn:
-            embedding = out.mean(-2) # [E,H]
-            embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
-        else:
-            xt_embed = self.model_pretrained(self.transform_imagenet(xt)).data # [B,512]
-            xt_embed = self.affine(xt_embed) # [B,H]
-            xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,H]
-            embedding = self.attn(xt_embed, xc_embed, out) # [E,B,H]
+        # if not self.with_attn:
+        embedding = out.mean(-2) # [E,H]
+        embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
+        # else:
+        #     xt_embed = self.model_pretrained(self.transform_imagenet(xt)).data # [B,512]
+        #     xt_embed = self.affine(xt_embed) # [B,H]
+        #     xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,H]
+        #     embedding = self.attn(xt_embed, xc_embed, out) # [E,B,H]
         
         return embedding

@@ -46,7 +46,11 @@ class ContextSampler():
             self.dataloader_lst.append(dataloader)
             self.data_iter_lst.append(iter(dataloader))
 
-    # Sample context points in a strictly class balanced way
+        #### Single dataloader version
+        # dataset = MyVisionDataset(images, labels, transform)
+        # self.dataloader = torch.utils.data.DataLoader(dataset, batch_size=cntx_pts_per_class*n_classes, shuffle=True, drop_last=True, **kwargs)
+        # self.data_iter = iter(self.dataloader)
+
     def _balanced_sample(self):
         input_lst = []
         target_lst = []
@@ -62,18 +66,34 @@ class ContextSampler():
         input_all = torch.vstack(input_lst)[perm]
         target_all = torch.cat(target_lst)[perm]
         input_all, target_all = input_all.to(self.device), target_all.to(self.device)
+
+        #### Single dataloader version
+        # try:
+        #     input_all, target_all = next(self.data_iter)
+        # except StopIteration:
+        #     self.data_iter = iter(self.dataloader)
+        #     input_all, target_all = next(self.data_iter)
+        # input_all, target_all = input_all.to(self.device), target_all.to(self.device)
+
         return input_all, target_all
 
     def sample(self, n_experts=1):
-        input_lst = []
-        target_lst = []
-        for _ in range(n_experts):
-            input, target = self._balanced_sample()
-            input_lst.append(input.unsqueeze(0))
-            target_lst.append(target.unsqueeze(0))
+        # input_lst = []
+        # target_lst = []
+        # for _ in range(n_experts):
+        #     input, target = self._balanced_sample()
+        #     input_lst.append(input.unsqueeze(0))
+        #     target_lst.append(target.unsqueeze(0))
+        # cntx = AttrDict()
+        # cntx.xc = torch.vstack(input_lst)
+        # cntx.yc = torch.vstack(target_lst)
+        
+        ## Since only using {yc,mc} not necessary to resample for multiple experts
+        input, target = self._balanced_sample()
         cntx = AttrDict()
-        cntx.xc = torch.vstack(input_lst)
-        cntx.yc = torch.vstack(target_lst)
+        cntx.xc = input.unsqueeze(0).repeat(n_experts,1,1,1,1)
+        cntx.yc = target.unsqueeze(0).repeat(n_experts,1)
+
         return cntx
     
     def reset(self):

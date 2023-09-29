@@ -337,27 +337,6 @@ def main(config):
     else: # evaluation on test data
         eval(model, test_data, expert_fn_eval, cntx_sampler, config)
 
-    # ##### DEBUGGING
-    # cntxt_xc = []
-    # cntxt_yc = []
-    # cntxt_mc = []
-    # for expert_cntx in expert_cntx_lst:
-    # 	cntxt_xc.append(expert_cntx.xc[None,:])
-    # 	cntxt_yc.append(expert_cntx.yc[None,:])
-    # 	cntxt_mc.append(expert_cntx.mc[None,:])
-    # cntxt = AttrDict()
-    # cntxt.xc = torch.vstack(cntxt_xc) # [E,Nc,3,32,32]
-    # cntxt.yc = torch.vstack(cntxt_yc) # [E,Nc]
-    # cntxt.mc = torch.vstack(cntxt_mc) # [E,Nc]
-
-    # kwargs = {'num_workers': 0, 'pin_memory': True}
-    # train_loader = torch.utils.data.DataLoader(train_data_new, batch_size=config["batch_size"], shuffle=True, **kwargs) # drop_last=True
-    # model = model.to(device)
-    # model.train()
-    # batches = [(X.to(device), y.to(device)) for X, y in train_loader]
-    # input, target = batches[0]
-    # model(input, cntxt)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -374,8 +353,8 @@ if __name__ == "__main__":
     ## NEW args
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
-    parser.add_argument("--n_cntx_per_class", type=int, default=5)
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop_attn')
+    parser.add_argument("--n_cntx_per_class", type=int, default=50)
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
     # parser.add_argument('--attn', action='store_true') # only used for l2d=pop
