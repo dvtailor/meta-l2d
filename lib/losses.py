@@ -1,5 +1,8 @@
+import functools
 import numpy as np
 import torch
+import functorch
+import torch.nn.functional as F
 
 
 def cross_entropy(outputs, m, labels, n_classes):
@@ -19,10 +22,16 @@ def cross_entropy(outputs, m, labels, n_classes):
 
 def ova(outputs, m, labels, n_classes):
     batch_size = outputs.size()[0]
-    l1 = logistic_loss(outputs[range(batch_size), labels], 1)
-    l2 = torch.sum(logistic_loss(outputs[:,:n_classes], -1), dim=1) - logistic_loss(outputs[range(batch_size),labels],-1)
-    l3 = logistic_loss(outputs[range(batch_size), n_classes], -1)
-    l4 = logistic_loss(outputs[range(batch_size), n_classes], 1)
+    # l1 = logistic_loss(outputs[range(batch_size), labels], 1)
+    # l2 = torch.sum(logistic_loss(outputs[:,:n_classes], -1), dim=1) - logistic_loss(outputs[range(batch_size),labels],-1)
+    # l3 = logistic_loss(outputs[range(batch_size), n_classes], -1)
+    # l4 = logistic_loss(outputs[range(batch_size), n_classes], 1)
+
+    l1 = F.binary_cross_entropy_with_logits(outputs[range(batch_size), labels], torch.ones(batch_size, device=outputs.device), reduction='none')
+    bce_partial_c0 = functorch.vmap(functools.partial(F.binary_cross_entropy_with_logits, target=torch.zeros(batch_size, device=outputs.device), reduction='none'), in_dims=1, out_dims=1)
+    l2 = torch.sum(bce_partial_c0(outputs[:,:n_classes]), dim=-1) - F.binary_cross_entropy_with_logits(outputs[range(batch_size), labels], torch.zeros(batch_size, device=outputs.device), reduction='none')
+    l3 = F.binary_cross_entropy_with_logits(outputs[range(batch_size), n_classes], torch.zeros(batch_size, device=outputs.device), reduction='none')
+    l4 = F.binary_cross_entropy_with_logits(outputs[range(batch_size), n_classes], torch.ones(batch_size, device=outputs.device), reduction='none')
 
     l5 = m * (l4 - l3)
 
@@ -30,8 +39,8 @@ def ova(outputs, m, labels, n_classes):
 
     return torch.mean(l)
 
-# TODO: double check this
-def logistic_loss(outputs, y):
-    outputs[torch.where(outputs==0.0)] = (-1*y)*(-1*np.inf)
-    l = torch.log2(1 + torch.exp((-1*y)*outputs))
-    return l
+
+# def logistic_loss(outputs, y):
+#     outputs[torch.where(outputs==0.0)] = (-1*y)*(-1*np.inf)
+#     l = torch.log2(1 + torch.exp((-1*y)*outputs))
+#     return l
