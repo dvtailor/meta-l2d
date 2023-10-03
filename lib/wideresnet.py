@@ -1,3 +1,4 @@
+import functools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -108,14 +109,24 @@ class Classifier(nn.Module):
         return out
 
 
-def build_mlp(dim_in, dim_hid, dim_out, depth):
+def get_activation(act_str):
+    if act_str == 'relu':
+        return functools.partial(nn.ReLU, inplace=True)
+    elif act_str == 'elu':
+        return functools.partial(nn.ELU, inplace=True)
+    else:
+        raise ValueError('invalid activation')
+
+
+def build_mlp(dim_in, dim_hid, dim_out, depth, activation='relu'):
+    act = get_activation(activation)
     if depth==1:
         modules = [nn.Linear(dim_in, dim_out)] # no hidden layers
     else: # depth>1
-        modules = [nn.Linear(dim_in, dim_hid), nn.ReLU(True)]
+        modules = [nn.Linear(dim_in, dim_hid), act()]
         for _ in range(depth-2):
             modules.append(nn.Linear(dim_hid, dim_hid))
-            modules.append(nn.ReLU(True))
+            modules.append(act())
         modules.append(nn.Linear(dim_hid, dim_out))
     return nn.Sequential(*modules)
 
@@ -128,9 +139,10 @@ class Identity(nn.Module):
         return x
 
 
+# NOTE: use depth_rej for post-aggregation MLP and dim_hid for that MLP width
 class ClassifierRejectorWithContextEmbedder(nn.Module):
     # Instantiate with actual num_classes (not augmented)
-    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=4, with_attn=False, with_softmax=True):
+    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=3, with_attn=False, with_softmax=True):
         super(ClassifierRejectorWithContextEmbedder, self).__init__()
         self.base_model = base_model
         self.num_classes = num_classes
@@ -138,8 +150,11 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.with_softmax = with_softmax
         self.fc = nn.Linear(n_features, num_classes)
         self.fc.bias.data.zero_()
-        self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
+        # self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
         self.embed_class = nn.Embedding(num_classes, dim_hid)
+
+        self.rejector_weight = build_mlp(dim_hid, dim_hid, n_features, depth_rej, 'elu')
+        self.rejector_bias = build_mlp(dim_hid, dim_hid, 1, depth_rej, 'elu')
 
         # # NB: just for testing purposes (shouldn't hard-code dataset scaling in ClassifierRejector)
         # unnormalize_cifar10 = UnNormalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
@@ -154,7 +169,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         # self.model_pretrained.eval()
         # self.affine = nn.Linear(dim_resnet18_out, dim_hid, bias=False) # project down pretrained feature extractor
 
-        rej_mdl_lst = [self.rejector, self.embed_class] #self.affine
+        rej_mdl_lst = [self.rejector_weight, self.rejector_bias, self.embed_class] #self.affine
         # if not with_attn:
         self.embed = build_mlp(2*dim_hid, dim_hid, dim_hid, depth_embed)
         rej_mdl_lst += [self.embed]
@@ -189,9 +204,10 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         logits_clf = logits_clf.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K]
 
         embedding = self.encode(cntxt, x) # [E,B,H]
+        rej_weight = self.rejector_weight(embedding) # [E,B,Dx]
+        rej_bias = self.rejector_bias(embedding) # [E,B,1]
         x_embed = x_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
-        packed = torch.cat([x_embed,embedding], -1) # [E,B,Dx+H]
-        logit_rej = self.rejector(packed) # [E,B,1]
+        logit_rej = torch.sum(rej_weight * x_embed, dim=-1).unsqueeze(-1) + rej_bias # [E,B,1]
         
         out = torch.cat([logits_clf,logit_rej], -1) # [E,B,K+1]
         if self.with_softmax:
