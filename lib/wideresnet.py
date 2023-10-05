@@ -90,6 +90,25 @@ class WideResNetBase(nn.Module):
         return out
     
 
+class Classifier(nn.Module):
+    def __init__(self, base_model, num_classes, n_features, with_softmax=True):
+        super(Classifier, self).__init__()
+        self.base_model = base_model
+        
+        self.fc = nn.Linear(n_features, num_classes)
+        self.fc.bias.data.zero_()
+
+        self.with_softmax = with_softmax
+
+    def forward(self, x):
+        out = self.base_model(x)
+        out = self.fc(out) # [B,K]
+
+        if self.with_softmax:
+            out = F.softmax(out, dim=-1)
+        return out
+    
+
 class ClassifierRejector(nn.Module):
     def __init__(self, base_model, num_classes, n_features, with_softmax=True):
         super(ClassifierRejector, self).__init__()
