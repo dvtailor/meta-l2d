@@ -175,15 +175,15 @@ def train(model,
 
         validation_loss = metrics["val_loss"]
 
-        torch.save(model.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
+        # torch.save(model.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
         # Additionally save the whole config dict
-        with open(os.path.join(config["ckp_dir"], config["experiment_name"] + ".json"), "w") as f:
-            json.dump(config, f)
+        # with open(os.path.join(config["ckp_dir"], config["experiment_name"] + ".json"), "w") as f:
+        #     json.dump(config, f)
 
 
 def eval(model, test_data, config):
-    model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
-    model = model.to(device)
+    # model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
+    # model = model.to(device)
     kwargs = {'num_workers': 0, 'pin_memory': True}
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["train_batch_size"], shuffle=False, **kwargs)
     logger = get_logger(os.path.join(config["ckp_dir"], "eval.log"))
@@ -202,8 +202,12 @@ def main(config):
     model = Classifier(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=False)
     
     train(model, train_data, val_data, config)
-    
     eval(model, test_data, config)
+
+    # save only WideResNet part
+    torch.save(wrnbase.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
+    with open(os.path.join(config["ckp_dir"], config["experiment_name"] + ".json"), "w") as f:
+        json.dump(config, f)
     
 
 if __name__ == "__main__":
