@@ -17,7 +17,7 @@ import torch.backends.cudnn as cudnn
 from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
 from lib.experts import synthetic_expert_overlap
-from lib.wideresnet import WideResNetBase, Classifier, ClassifierRejectorWithContextEmbedder
+from lib.wideresnet import WideResNetBase, ClassifierRejector, ClassifierRejectorWithContextEmbedder
 from lib.datasets import load_cifar10, ContextSampler
 
 
@@ -237,7 +237,7 @@ def train(model,
     scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader) * config["epochs"])
 
     parameter_group = [{'params': model.params.clf.parameters()}]
-    if config["l2d"] == "pop":
+    if config["l2d"] == "pop": # NB: not sure why distinguish params.clf and params.rej
         parameter_group += [{'params':model.params.rej.parameters()}]
     optimizer_new = torch.optim.Adam(parameter_group, lr=5e-4) #1e-2
     scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * config["epochs"])
@@ -323,7 +323,7 @@ def main(config):
         model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
                                                       with_attn=with_attn, with_softmax=with_softmax)
     else:
-        model = Classifier(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax)
+        model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax)
 
     expert_fns_train = []
     for i in range(config["n_classes"]):
@@ -366,7 +366,7 @@ if __name__ == "__main__":
     ## NEW args
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
-    parser.add_argument("--n_cntx_per_class", type=int, default=50)
+    parser.add_argument("--n_cntx_per_class", type=int, default=5) # 50
     parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)

@@ -1,3 +1,4 @@
+import copy
 import functools
 import torch
 import torch.nn as nn
@@ -89,21 +90,33 @@ class WideResNetBase(nn.Module):
         return out
     
 
-class Classifier(nn.Module):
+class ClassifierRejector(nn.Module):
     def __init__(self, base_model, num_classes, n_features, with_softmax=True):
-        super(Classifier, self).__init__()
-        self.base_model = base_model
+        super(ClassifierRejector, self).__init__()
+        self.base_model_clf = base_model
+        self.base_model_rej = copy.deepcopy(self.base_model_clf)
+        
+        self.fc_clf = nn.Linear(n_features, num_classes)
+        self.fc_clf.bias.data.zero_()
+
+        self.fc_rej = nn.Linear(n_features, 1)
+        self.fc_rej.bias.data.zero_()
+
         self.with_softmax = with_softmax
-        self.fc = nn.Linear(n_features, num_classes+1)
-        self.fc.bias.data.zero_()
         self.params = nn.ModuleDict({
-            'base': nn.ModuleList([self.base_model]),
-            'clf' : nn.ModuleList([self.fc])
+            'base': nn.ModuleList([self.base_model_clf,self.base_model_rej]),
+            'clf' : nn.ModuleList([self.fc_clf,self.fc_rej])
         })
 
     def forward(self, x):
-        out = self.base_model(x)
-        out = self.fc(out)
+        out = self.base_model_clf(x)
+        logits_clf = self.fc_clf(out) # [B,K]
+
+        out = self.base_model_rej(x)
+        logit_rej = self.fc_rej(out) # [B,1]
+
+        out = torch.cat([logits_clf,logit_rej], -1) # [B,K+1]
+
         if self.with_softmax:
             out = F.softmax(out, dim=-1)
         return out
@@ -139,37 +152,25 @@ class Identity(nn.Module):
         return x
 
 
-# NOTE: use depth_rej for post-aggregation MLP and dim_hid for that MLP width
 class ClassifierRejectorWithContextEmbedder(nn.Module):
     # Instantiate with actual num_classes (not augmented)
     def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=3, with_attn=False, with_softmax=True):
         super(ClassifierRejectorWithContextEmbedder, self).__init__()
-        self.base_model = base_model
         self.num_classes = num_classes
         self.with_attn = with_attn
         self.with_softmax = with_softmax
+
+        self.base_model_clf = base_model
+        self.base_model_rej = copy.deepcopy(self.base_model_clf)
+        
         self.fc = nn.Linear(n_features, num_classes)
         self.fc.bias.data.zero_()
-        # self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
+
+        self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
+        self.rejector[-1].bias.data.zero_()
         self.embed_class = nn.Embedding(num_classes, dim_hid)
 
-        self.rejector_weight = build_mlp(dim_hid, dim_hid, n_features, depth_rej, 'elu')
-        self.rejector_bias = build_mlp(dim_hid, dim_hid, 1, depth_rej, 'elu')
-
-        # # NB: just for testing purposes (shouldn't hard-code dataset scaling in ClassifierRejector)
-        # unnormalize_cifar10 = UnNormalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
-        #                                   std=[x / 255.0 for x in [63.0, 62.1, 66.7]])
-        # weights_pretrained = ResNet18_Weights.IMAGENET1K_V1
-        # self.transform_imagenet = transforms.Compose([unnormalize_cifar10,weights_pretrained.transforms()])
-        # self.model_pretrained = resnet18(weights=weights_pretrained)
-        # for param in self.model_pretrained.parameters():
-        #     param.requires_grad = False
-        # dim_resnet18_out = self.model_pretrained.fc.in_features
-        # self.model_pretrained.fc = Identity() # override final layer to instead output penultimate activations (dim=512)
-        # self.model_pretrained.eval()
-        # self.affine = nn.Linear(dim_resnet18_out, dim_hid, bias=False) # project down pretrained feature extractor
-
-        rej_mdl_lst = [self.rejector_weight, self.rejector_bias, self.embed_class] #self.affine
+        rej_mdl_lst = [self.rejector, self.embed_class]
         # if not with_attn:
         self.embed = build_mlp(2*dim_hid, dim_hid, dim_hid, depth_embed)
         rej_mdl_lst += [self.embed]
@@ -183,7 +184,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         #     rej_mdl_lst += [self.embed, self.attn]
         
         self.params = nn.ModuleDict({
-            'base': nn.ModuleList([self.base_model]),
+            'base': nn.ModuleList([self.base_model_clf,self.base_model_rej]),
             'clf' : nn.ModuleList([self.fc]),
             'rej': nn.ModuleList(rej_mdl_lst)
         })
@@ -199,15 +200,15 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         '''
         n_experts = cntxt.xc.shape[0]
         
-        x_embed = self.base_model(x) # [B,Dx]
+        x_embed = self.base_model_clf(x) # [B,Dx]
         logits_clf = self.fc(x_embed) # [B,K]
         logits_clf = logits_clf.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K]
 
         embedding = self.encode(cntxt, x) # [E,B,H]
-        rej_weight = self.rejector_weight(embedding) # [E,B,Dx]
-        rej_bias = self.rejector_bias(embedding) # [E,B,1]
+        x_embed = self.base_model_rej(x) # [B,Dx]
         x_embed = x_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
-        logit_rej = torch.sum(rej_weight * x_embed, dim=-1).unsqueeze(-1) + rej_bias # [E,B,1]
+        packed = torch.cat([x_embed,embedding], -1) # [E,B,Dx+H]
+        logit_rej = self.rejector(packed) # [E,B,1]
         
         out = torch.cat([logits_clf,logit_rej], -1) # [E,B,K+1]
         if self.with_softmax:
