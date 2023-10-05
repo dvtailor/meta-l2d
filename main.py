@@ -233,17 +233,21 @@ def train(model,
     model = model.to(device)
     cudnn.benchmark = True
 
-    optimizer_base = torch.optim.SGD(model.params.base.parameters(), config["lr"], momentum=0.9, nesterov=True, weight_decay=config["weight_decay"])
-    scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader) * config["epochs"])
+    if config["warmstart"]: # use Adam for everything
+        optimizer_lst = [torch.optim.Adam(model.parameters(), lr=5e-4)]
+        scheduler_lst = [torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_lst[0], len(train_loader) * config["epochs"])]
+    else: # use WRN training configuration for base model and Adam for rest
+        optimizer_base = torch.optim.SGD(model.params.base.parameters(), config["lr"], momentum=0.9, nesterov=True, weight_decay=config["weight_decay"])
+        scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader) * config["epochs"])
 
-    parameter_group = [{'params': model.params.clf.parameters()}]
-    if config["l2d"] == "pop": # NB: not sure why distinguish params.clf and params.rej
-        parameter_group += [{'params':model.params.rej.parameters()}]
-    optimizer_new = torch.optim.Adam(parameter_group, lr=5e-4) #1e-2
-    scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * config["epochs"])
+        parameter_group = [{'params': model.params.clf.parameters()}]
+        if config["l2d"] == "pop":
+            parameter_group += [{'params':model.params.rej.parameters()}]
+        optimizer_new = torch.optim.Adam(parameter_group, lr=5e-4) #1e-2
+        scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * config["epochs"])
 
-    optimizer_lst = [optimizer_base, optimizer_new]
-    scheduler_lst = [scheduler_base, scheduler_new]
+        optimizer_lst = [optimizer_base, optimizer_new]
+        scheduler_lst = [scheduler_base, scheduler_new]
 
     # best_validation_loss = np.inf
     # patience = 0
@@ -302,7 +306,7 @@ def eval(model, test_data, loss_fn, expert_fn_eval, cntx_sampler, config):
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/gradual_overlap/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    config["ckp_dir"] = f"./runs/gradual_overlap_new/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # TODO
     os.makedirs(config["ckp_dir"], exist_ok=True)
     train_data, val_data, test_data = load_cifar10(data_aug=False, seed=config["seed"])
     config["n_classes"] = 10
@@ -318,7 +322,15 @@ def main(config):
     if len(config["l2d"].split("_"))==2:
         with_attn=True
         config["l2d"] = "pop"
+
     wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0)
+    if config["warmstart"]:
+        warmstart_path = f"./pretrained/seed{str(config['seed'])}/default.pt"
+        if not os.path.isfile(warmstart_path):
+            raise FileNotFoundError('warmstart model checkpoint not found')
+        wrnbase.load_state_dict(torch.load(warmstart_path, map_location=device))
+        wrnbase = wrnbase.to(device)
+    
     if config["l2d"] == "pop":
         model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
                                                       with_attn=with_attn, with_softmax=with_softmax)
@@ -370,6 +382,8 @@ if __name__ == "__main__":
     parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
+    parser.add_argument('--warmstart', action='store_true')
+    parser.set_defaults(warmstart=True)
     # parser.add_argument('--attn', action='store_true') # only used for l2d=pop
     # parser.set_defaults(attn=False)
     
