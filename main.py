@@ -233,21 +233,22 @@ def train(model,
     model = model.to(device)
     cudnn.benchmark = True
 
-    if config["warmstart"]: # use Adam for everything
-        optimizer_lst = [torch.optim.Adam(model.parameters(), lr=5e-4)]
-        scheduler_lst = [torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_lst[0], len(train_loader) * config["epochs"])]
-    else: # use WRN training configuration for base model and Adam for rest
-        optimizer_base = torch.optim.SGD(model.params.base.parameters(), config["lr"], momentum=0.9, nesterov=True, weight_decay=config["weight_decay"])
-        scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader) * config["epochs"])
+    if config["warmstart"]:
+        config["epochs"] = config["epochs"] // 2
+        lr_wrn = 5e-4
+    else:
+        lr_wrn = config["lr"]
+    optimizer_base = torch.optim.SGD(model.params.base.parameters(), lr_wrn, momentum=0.9, nesterov=True, weight_decay=config["weight_decay"])
+    scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader) * config["epochs"])
 
-        parameter_group = [{'params': model.params.clf.parameters()}]
-        if config["l2d"] == "pop":
-            parameter_group += [{'params':model.params.rej.parameters()}]
-        optimizer_new = torch.optim.Adam(parameter_group, lr=5e-4) #1e-2
-        scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * config["epochs"])
+    parameter_group = [{'params': model.params.clf.parameters()}]
+    if config["l2d"] == "pop":
+        parameter_group += [{'params':model.params.rej.parameters()}]
+    optimizer_new = torch.optim.Adam(parameter_group, lr=5e-4)
+    scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * config["epochs"])
 
-        optimizer_lst = [optimizer_base, optimizer_new]
-        scheduler_lst = [scheduler_base, scheduler_new]
+    optimizer_lst = [optimizer_base, optimizer_new]
+    scheduler_lst = [scheduler_base, scheduler_new]
 
     # best_validation_loss = np.inf
     # patience = 0
@@ -364,7 +365,7 @@ def main(config):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=1071)
     parser.add_argument("--train_batch_size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=200)
     # parser.add_argument("--patience", type=int, default=50, 
