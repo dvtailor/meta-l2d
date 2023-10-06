@@ -234,7 +234,7 @@ def train(model,
     cudnn.benchmark = True
 
     if config["warmstart"]:
-        config["epochs"] = config["epochs"] // 2
+        config["epochs"] = 25 #config["epochs"] // 2
         lr_wrn = 5e-4
     else:
         lr_wrn = config["lr"]

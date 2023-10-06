@@ -15,7 +15,8 @@ import torch.backends.cudnn as cudnn
 
 # local imports
 from lib.utils import AverageMeter, accuracy, get_logger
-from lib.wideresnet import WideResNetBase, Classifier
+from lib.wideresnet import Classifier #WideResNetBase
+from lib.models_fixup import WideResNetBase
 from lib.datasets import load_cifar10
 
 
@@ -151,7 +152,19 @@ def train(model,
     model = model.to(device)
     cudnn.benchmark = True
 
-    optimizer = torch.optim.SGD(model.parameters(), config["lr"], momentum=0.9, nesterov=True, weight_decay=config["weight_decay"])
+    parameters_bias = [p[1] for p in model.named_parameters() if 'bias' in p[0]]
+    parameters_scale = [p[1] for p in model.named_parameters() if 'scale' in p[0]]
+    parameters_others = [p[1] for p in model.named_parameters() if not ('bias' in p[0] or 'scale' in p[0])]
+    optimizer = torch.optim.SGD(
+        [{'params': parameters_bias, 'lr': config["lr"]/10.}, 
+        {'params': parameters_scale, 'lr': config["lr"]/10.}, 
+        {'params': parameters_others}], 
+        lr=config["lr"],
+        momentum=0.9, 
+        nesterov=True,
+        weight_decay=config["weight_decay"])
+
+    # optimizer = torch.optim.SGD(model.parameters(), config["lr"], momentum=0.9, nesterov=True, weight_decay=config["weight_decay"])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, len(train_loader) * config["epochs"])
 
     iters = 0

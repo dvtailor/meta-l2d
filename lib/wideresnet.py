@@ -187,11 +187,12 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
 
         self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
         self.rejector[-1].bias.data.zero_()
-        self.embed_class = nn.Embedding(num_classes, dim_hid)
+        # self.embed_class = nn.Embedding(num_classes, dim_hid)
 
-        rej_mdl_lst = [self.rejector, self.embed_class]
+        rej_mdl_lst = [self.rejector] # self.embed_class
         # if not with_attn:
-        self.embed = build_mlp(2*dim_hid, dim_hid, dim_hid, depth_embed)
+        # self.embed = build_mlp(2*dim_hid, dim_hid, dim_hid, depth_embed)
+        self.embed = build_mlp(2*num_classes, dim_hid, dim_hid, depth_embed)
         rej_mdl_lst += [self.embed]
         # else:
         #     self.embed = nn.Sequential(
@@ -243,10 +244,18 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         # xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,512]
         # xc_embed = self.affine(xc_embed) # [E,Nc,H]
 
-        yc_embed = self.embed_class(cntxt.yc) # [E,Nc,H]
-        mc_embed = self.embed_class(cntxt.mc) # [E,Nc,H]
+        # yc_embed = self.embed_class(cntxt.yc) # [E,Nc,H]
+        # mc_embed = self.embed_class(cntxt.mc) # [E,Nc,H]
+        # out = torch.cat([yc_embed,mc_embed], -1) # [E,Nc,2H]
 
-        out = torch.cat([yc_embed,mc_embed], -1) # [E,Nc,2H]
+        yc_embed = F.one_hot(cntxt.yc.view(-1), num_classes=self.num_classes) # [E*Nc,K]
+        yc_embed = yc_embed.view(cntxt.yc.shape[:2] + (self.num_classes,)) # [E,Nc,K]
+        mc_embed = F.one_hot(cntxt.mc.view(-1), num_classes=self.num_classes) # [E*Nc,K]
+        mc_embed = mc_embed.view(cntxt.mc.shape[:2] + (self.num_classes,)) # [E,Nc,K]
+
+        out = torch.cat([yc_embed, mc_embed], -1) # [E,Nc,2K]
+        out = out.float()
+
         out = self.embed(out) # [E,Nc,H]
 
         # if not self.with_attn:
