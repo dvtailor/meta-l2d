@@ -239,8 +239,10 @@ def train(model,
     if config["warmstart"]:
         config["epochs"] = 50
         lr_wrn = 1e-4
+        lr_clf_rej = 1e-4
     else:
         lr_wrn = config["lr"]
+        lr_clf_rej = 1e-2
     parameters_bias = [p[1] for p in model.params.base.named_parameters() if 'bias' in p[0]]
     parameters_scale = [p[1] for p in model.params.base.named_parameters() if 'scale' in p[0]]
     parameters_others = [p[1] for p in model.params.base.named_parameters() if not ('bias' in p[0] or 'scale' in p[0])]
@@ -254,7 +256,7 @@ def train(model,
         weight_decay=config["weight_decay"])
     scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader) * config["epochs"])
 
-    lr_clf_rej = 1e-4
+    
     parameter_group = [{'params': model.params.clf.parameters()}] # no fixup here
     if config["l2d"] == "pop":
         parameters_rej_bias = [p[1] for p in model.params.rej.named_parameters() if 'bias' in p[0]]
@@ -326,7 +328,7 @@ def eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config):
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/gradual_overlap/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # TODO
+    config["ckp_dir"] = f"./runs/gradual_overlap_new/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # TODO
     os.makedirs(config["ckp_dir"], exist_ok=True)
     train_data, val_data, test_data = load_cifar10(data_aug=False, seed=config["seed"])
     config["n_classes"] = 10
@@ -397,11 +399,11 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     parser.add_argument("--n_cntx_per_class", type=int, default=5) # 50
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop_attn')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='single')
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')
-    parser.set_defaults(warmstart=True)
+    parser.set_defaults(warmstart=False)
     # parser.add_argument('--attn', action='store_true') # only used for l2d=pop
     # parser.set_defaults(attn=False)
     
