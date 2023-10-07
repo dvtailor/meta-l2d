@@ -16,8 +16,9 @@ import torch.backends.cudnn as cudnn
 # local imports
 from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
-from lib.experts import synthetic_expert_overlap
-from lib.wideresnet import WideResNetBase, ClassifierRejector, ClassifierRejectorWithContextEmbedder
+from lib.experts import SyntheticExpertOverlap #synthetic_expert_overlap
+from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase
+# from lib.models_fixup import WideResNetBase
 from lib.datasets import load_cifar10, ContextSampler
 
 
@@ -34,7 +35,7 @@ def set_seed(seed):
 
 
 def evaluate(model,
-            expert_fn,
+            expert,
             loss_fn,
             cntx_sampler,
             n_classes,
@@ -46,7 +47,7 @@ def evaluate(model,
     -----
     Arguments:
     net: model
-    expert_fn: expert model
+    expert: expert model
     n_classes: number of classes
     loader: data loader
     '''
@@ -69,7 +70,7 @@ def evaluate(model,
             if config["l2d"] == 'pop':
                 # sample expert predictions for context
                 expert_cntx = cntx_sampler.sample(n_experts=1)
-                exp_preds = torch.tensor(expert_fn(expert_cntx.xc.squeeze(0), expert_cntx.yc.squeeze()), device=device)
+                exp_preds = torch.tensor(expert(expert_cntx.xc.squeeze(0), expert_cntx.yc.squeeze()), device=device)
                 expert_cntx.mc = exp_preds.unsqueeze(0)
                 
                 outputs = model(images, expert_cntx).squeeze(0)
@@ -79,7 +80,7 @@ def evaluate(model,
             _, predicted = torch.max(outputs.data, -1)
             
             # sample expert predictions for evaluation data and evaluate costs
-            exp_prediction = expert_fn(images, labels)
+            exp_prediction = expert(images, labels)
             m = [0]*batch_size
             for j in range(0, batch_size):
                 if exp_prediction[j] == labels[j].item():
@@ -91,6 +92,7 @@ def evaluate(model,
 
             loss = loss_fn(outputs, m, labels, n_classes) # single-expert L2D loss
             losses.append(loss.item())
+            expert.resample() # sample new expert
 
             for i in range(0, batch_size):
                 r = (predicted[i].item() == n_classes)
@@ -138,7 +140,7 @@ def train_epoch(iters,
                 optimizer_lst,
                 scheduler_lst,
                 epoch,
-                expert_fns_train,
+                experts_train,
                 loss_fn,
                 cntx_sampler,
                 n_classes,
@@ -157,15 +159,15 @@ def train_epoch(iters,
     for i, (input, target) in enumerate(train_loader):
         target = target.to(device)
         input = input.to(device)
-        n_experts = len(expert_fns_train)
+        n_experts = len(experts_train)
 
         if config["l2d"] == 'pop':
             expert_cntx = cntx_sampler.sample(n_experts=n_experts)
 
             # sample expert predictions for context
             exp_preds_cntx = []
-            for idx_exp, expert_fn in enumerate(expert_fns_train):
-                preds = torch.tensor(expert_fn(expert_cntx.xc[idx_exp], expert_cntx.yc[idx_exp]), device=device)
+            for idx_exp, expert in enumerate(experts_train):
+                preds = torch.tensor(expert(expert_cntx.xc[idx_exp], expert_cntx.yc[idx_exp]), device=device)
                 exp_preds_cntx.append(preds.unsqueeze(0))
             expert_cntx.mc = torch.vstack(exp_preds_cntx)
 
@@ -175,11 +177,11 @@ def train_epoch(iters,
             outputs = outputs.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K+1]
         
         loss = 0
-        for idx_exp, expert_fn in enumerate(expert_fns_train):
-            m = torch.tensor(expert_fn(input, target), device=device)
+        for idx_exp, expert in enumerate(experts_train):
+            m = torch.tensor(expert(input, target), device=device)
             costs = (m==target).int()
             loss += loss_fn(outputs[idx_exp], costs, target, n_classes) # loss per expert
-        loss /= len(expert_fns_train)
+        loss /= len(experts_train)
         epoch_train_loss.append(loss.item())
 
         # measure accuracy and record loss
@@ -216,8 +218,8 @@ def train(model,
           train_dataset,
           validation_dataset,
           loss_fn,
-          expert_fns_train,
-          expert_fn_eval,
+          experts_train,
+          expert_eval,
           cntx_sampler,
           config):
     logger = get_logger(os.path.join(config["ckp_dir"], "train.log"))
@@ -233,18 +235,35 @@ def train(model,
     model = model.to(device)
     cudnn.benchmark = True
 
+    # TODO: remove bias/scale stuff since going back to WRN w/ batch-norm
     if config["warmstart"]:
-        config["epochs"] = 25 #config["epochs"] // 2
-        lr_wrn = 5e-4
+        config["epochs"] = 50
+        lr_wrn = 1e-4
     else:
         lr_wrn = config["lr"]
-    optimizer_base = torch.optim.SGD(model.params.base.parameters(), lr_wrn, momentum=0.9, nesterov=True, weight_decay=config["weight_decay"])
+    parameters_bias = [p[1] for p in model.params.base.named_parameters() if 'bias' in p[0]]
+    parameters_scale = [p[1] for p in model.params.base.named_parameters() if 'scale' in p[0]]
+    parameters_others = [p[1] for p in model.params.base.named_parameters() if not ('bias' in p[0] or 'scale' in p[0])]
+    optimizer_base = torch.optim.SGD(
+        [{'params': parameters_bias, 'lr': lr_wrn/10.}, 
+        {'params': parameters_scale, 'lr': lr_wrn/10.}, 
+        {'params': parameters_others}], 
+        lr=lr_wrn,
+        momentum=0.9, 
+        nesterov=True,
+        weight_decay=config["weight_decay"])
     scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader) * config["epochs"])
 
-    parameter_group = [{'params': model.params.clf.parameters()}]
+    lr_clf_rej = 1e-4
+    parameter_group = [{'params': model.params.clf.parameters()}] # no fixup here
     if config["l2d"] == "pop":
-        parameter_group += [{'params':model.params.rej.parameters()}]
-    optimizer_new = torch.optim.Adam(parameter_group, lr=5e-4)
+        parameters_rej_bias = [p[1] for p in model.params.rej.named_parameters() if 'bias' in p[0]]
+        parameters_rej_scale = [p[1] for p in model.params.rej.named_parameters() if 'scale' in p[0]]
+        parameters_rej_others = [p[1] for p in model.params.rej.named_parameters() if not ('bias' in p[0] or 'scale' in p[0])]
+        parameter_group += [{'params': parameters_rej_bias, 'lr': lr_clf_rej/10.}, 
+                            {'params': parameters_rej_scale, 'lr': lr_clf_rej/10.}, 
+                            {'params': parameters_rej_others}]
+    optimizer_new = torch.optim.Adam(parameter_group, lr=lr_clf_rej) #weight_decay=config["weight_decay"]
     scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * config["epochs"])
 
     optimizer_lst = [optimizer_base, optimizer_new]
@@ -262,14 +281,14 @@ def train(model,
                                         optimizer_lst, 
                                         scheduler_lst, 
                                         epoch,
-                                        expert_fns_train,
+                                        experts_train,
                                         loss_fn,
                                         cntx_sampler,
                                         n_classes,
                                         config,
                                         logger)
         metrics = evaluate(model,
-                           expert_fn_eval,
+                           expert_eval,
                            loss_fn,
                            cntx_sampler,
                            n_classes,
@@ -295,19 +314,19 @@ def train(model,
         # 	break	
 
 
-def eval(model, test_data, loss_fn, expert_fn_eval, cntx_sampler, config):
+def eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config):
     model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
     model = model.to(device)
     kwargs = {'num_workers': 0, 'pin_memory': True}
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
     logger = get_logger(os.path.join(config["ckp_dir"], "eval.log"))
-    evaluate(model, expert_fn_eval, loss_fn, cntx_sampler, config["n_classes"], test_loader, config, logger)
+    evaluate(model, expert_eval, loss_fn, cntx_sampler, config["n_classes"], test_loader, config, logger)
 
 
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/gradual_overlap_new/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # TODO
+    config["ckp_dir"] = f"./runs/gradual_overlap/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # TODO
     os.makedirs(config["ckp_dir"], exist_ok=True)
     train_data, val_data, test_data = load_cifar10(data_aug=False, seed=config["seed"])
     config["n_classes"] = 10
@@ -338,14 +357,12 @@ def main(config):
     else:
         model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax)
 
-    expert_fns_train = []
+    experts_train = []
     for i in range(config["n_classes"]):
-        expert_fn = functools.partial(synthetic_expert_overlap, class_oracle=i, \
-                        n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
-        expert_fns_train.append(expert_fn)
+        expert = SyntheticExpertOverlap(class_oracle=i, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
+        experts_train.append(expert)
     # oracle class sampled every time
-    expert_fn_eval = functools.partial(synthetic_expert_overlap, \
-                        n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
+    expert_eval = SyntheticExpertOverlap(n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
     
     # Context set (x,y) sampler (always from train set, even during evaluation)
     images_train = train_data.dataset.data[train_data.indices]
@@ -356,11 +373,11 @@ def main(config):
                                     n_classes=config["n_classes"], device=device, **kwargs)
     
     if config["mode"] == 'train':
-        train(model, train_data, val_data, loss_fn, expert_fns_train, expert_fn_eval, cntx_sampler, config)
+        train(model, train_data, val_data, loss_fn, experts_train, expert_eval, cntx_sampler, config)
         cntx_sampler.reset()
-        eval(model, test_data, loss_fn, expert_fn_eval, cntx_sampler, config)
+        eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config)
     else: # evaluation on test data
-        eval(model, test_data, loss_fn, expert_fn_eval, cntx_sampler, config)
+        eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config)
 
 
 if __name__ == "__main__":
@@ -375,12 +392,12 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     parser.add_argument("--experiment_name", type=str, default="default",
                             help="specify the experiment name. Checkpoints will be saved with this name.")
-    parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='ova')
+    parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
     ## NEW args
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     parser.add_argument("--n_cntx_per_class", type=int, default=5) # 50
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='single')
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')

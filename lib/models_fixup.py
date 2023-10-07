@@ -1,3 +1,4 @@
+# Remove if no longer used.
 # Code adapted from: https://github.com/aleximmer/ntk-marglik/blob/main/ntkmarglik/models.py
 import torch
 import numpy as np
@@ -51,11 +52,11 @@ class MLP(nn.Sequential):
         self.depth = depth
         hidden_sizes = depth * [width]
         self.activation = activation
-        flatten_start_dim = 1
+        # flatten_start_dim = 1
         act = get_activation(activation)
         output_size = output_size
 
-        self.add_module('flatten', nn.Flatten(start_dim=flatten_start_dim))
+        # self.add_module('flatten', nn.Flatten(start_dim=flatten_start_dim))
 
         if len(hidden_sizes) == 0:  # i.e. when depth == 0.
             # Linear Model
