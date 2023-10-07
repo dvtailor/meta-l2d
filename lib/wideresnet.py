@@ -178,7 +178,7 @@ class Identity(nn.Module):
 
 class ClassifierRejectorWithContextEmbedder(nn.Module):
     # Instantiate with actual num_classes (not augmented)
-    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=2, depth_rej=4, with_attn=False, with_softmax=True):
+    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=4, depth_rej=4, with_attn=False, with_softmax=True):
         super(ClassifierRejectorWithContextEmbedder, self).__init__()
         self.num_classes = num_classes
         self.with_attn = with_attn
@@ -191,31 +191,21 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.fc.bias.data.zero_()
 
         self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
-        # self.rejector = build_mlp(n_features+num_classes, dim_hid, 1, depth_rej)
         self.rejector[-1].bias.data.zero_()
         self.embed_class = nn.Embedding(num_classes, dim_hid)
-
-        rej_mdl_lst = [self.rejector, self.embed_class]
-        # if not with_attn:
+        
         # self.embed = build_mlp(dim_hid, dim_hid, dim_hid, depth_embed)
-        # self.embed = build_mlp_fixup(2*num_classes, dim_hid, dim_hid, depth_embed)
-
-        # self.embed = nn.Sequential(
-        #     build_mlp_fixup(2*num_classes, dim_hid, dim_hid, depth_embed-2),
-        #     nn.ReLU(True),
-        #     SelfAttn(dim_hid, dim_hid)
-        # )
-
+        self.embed = nn.Sequential(
+            build_mlp(n_features+dim_hid*2, dim_hid, dim_hid, depth_embed),
+            nn.ReLU(True),
+            SelfAttn(dim_hid, dim_hid)
+        )
         # self.embed_post = build_mlp_fixup(dim_hid, dim_hid, dim_hid, 2)
-        # rej_mdl_lst += [self.embed] #self.embed_post
-        # else:
-        #     self.embed = nn.Sequential(
-        #         build_mlp(3*dim_hid, dim_hid, dim_hid, depth_embed),
-        #         nn.ReLU(True),
-        #         SelfAttn(dim_hid, dim_hid)
-        #     )
-        #     self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
-        #     rej_mdl_lst += [self.embed, self.attn]
+        rej_mdl_lst = [self.rejector, self.embed_class, self.embed] #self.embed_post
+
+        if with_attn:
+            self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
+            rej_mdl_lst += [self.attn]
         
         self.params = nn.ModuleDict({
             'base': nn.ModuleList([self.base_model]), # self.base_model_rej
@@ -253,49 +243,44 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         n_experts = cntxt.xc.shape[0]
         batch_size = xt.shape[0]
 
-        # figure out oracle class manually
-        expert_count_by_class = torch.zeros((n_experts,self.num_classes), device=xt.device)
-        label_expert_eq = torch.eq(cntxt.yc, cntxt.mc).int()
-        for ee in range(n_experts):
-            for cc in range(self.num_classes):
-                indices_by_class = torch.where(cntxt.yc[ee]==cc)[0]
-                expert_count_by_class[ee,cc] = label_expert_eq[ee][indices_by_class].sum()
-        oracle_class_by_expert = torch.argmax(expert_count_by_class, dim=-1) # [E]
-        # embedding = F.one_hot(oracle_class_by_expert, num_classes=self.num_classes) # [E,K]
+        # # figure out oracle class manually
+        # expert_count_by_class = torch.zeros((n_experts,self.num_classes), device=xt.device)
+        # label_expert_eq = torch.eq(cntxt.yc, cntxt.mc).int()
+        # for ee in range(n_experts):
+        #     for cc in range(self.num_classes):
+        #         indices_by_class = torch.where(cntxt.yc[ee]==cc)[0]
+        #         expert_count_by_class[ee,cc] = label_expert_eq[ee][indices_by_class].sum()
+        # oracle_class_by_expert = torch.argmax(expert_count_by_class, dim=-1) # [E]
+        # # embedding = F.one_hot(oracle_class_by_expert, num_classes=self.num_classes) # [E,K]
+        # embedding = self.embed_class(oracle_class_by_expert) # [E,H]
 
-        embedding = self.embed_class(oracle_class_by_expert) # [E,H]
+        cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
+        xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
+        xc_embed = xc_embed.detach() # stop gradient flow to base model
+        xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,Dx]
 
-
-        # cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
-        # xc_embed = self.model_pretrained(self.transform_imagenet(cntxt_xc)).data # [E*Nc,512]
-        # xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,512]
-        # xc_embed = self.affine(xc_embed) # [E,Nc,H]
-
-        # yc_embed = self.embed_class(cntxt.yc) # [E,Nc,H]
-        # mc_embed = self.embed_class(cntxt.mc) # [E,Nc,H]
-        # out = torch.cat([yc_embed,mc_embed], -1) # [E,Nc,2H]
+        yc_embed = self.embed_class(cntxt.yc) # [E,Nc,H]
+        mc_embed = self.embed_class(cntxt.mc) # [E,Nc,H]
+        out = torch.cat([xc_embed,yc_embed,mc_embed], -1) # [E,Nc,Dx+2H]
 
         # yc_embed = F.one_hot(cntxt.yc.view(-1), num_classes=self.num_classes) # [E*Nc,K]
         # yc_embed = yc_embed.view(cntxt.yc.shape[:2] + (self.num_classes,)) # [E,Nc,K]
         # mc_embed = F.one_hot(cntxt.mc.view(-1), num_classes=self.num_classes) # [E*Nc,K]
         # mc_embed = mc_embed.view(cntxt.mc.shape[:2] + (self.num_classes,)) # [E,Nc,K]
-
         # out = torch.cat([yc_embed, mc_embed], -1) # [E,Nc,2K]
         # out = out.float()
 
-        # out = self.embed(out) # [E,Nc,H]
+        out = self.embed(out) # [E,Nc,H]
 
-        # if not self.with_attn:
-        # embedding = out.mean(-2) # [E,H]
-        # embedding, _ = out.max(-2) # [E,H]
-
-        # embedding = self.embed_post(embedding) # [E,H]
-
-        embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
-        # else:
-        #     xt_embed = self.model_pretrained(self.transform_imagenet(xt)).data # [B,512]
-        #     xt_embed = self.affine(xt_embed) # [B,H]
-        #     xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,H]
-        #     embedding = self.attn(xt_embed, xc_embed, out) # [E,B,H]
+        if not self.with_attn:
+            embedding = out.mean(-2) # [E,H]
+            # embedding, _ = out.max(-2) # [E,H]
+            # embedding = self.embed_post(embedding) # [E,H]
+            embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
+        else:
+            xt_embed = self.base_model(xt) # [B,Dx]
+            xt_embed = xt_embed.detach() # stop gradients flowing
+            xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
+            embedding = self.attn(xt_embed, xc_embed, out) # [E,B,H]
         
         return embedding
