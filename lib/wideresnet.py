@@ -3,12 +3,8 @@ import functools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision.transforms as transforms
-from torchvision.models import resnet18, ResNet18_Weights
 
 from lib.attention import MultiHeadAttn, SelfAttn
-from lib.datasets import UnNormalize
-from lib.models_fixup import MLP
 
 class BasicBlock(nn.Module):
     def __init__(self, in_planes, out_planes, stride, dropRate=0.0):
@@ -164,10 +160,6 @@ def build_mlp(dim_in, dim_hid, dim_out, depth, activation='relu'):
     return nn.Sequential(*modules)
 
 
-# def build_mlp_fixup(dim_in, dim_hid, dim_out, depth, activation='relu'):
-#     return MLP(dim_in, dim_hid, depth-1, dim_out, activation, fixup=True)
-
-
 class Identity(nn.Module):
     def __init__(self):
         super(Identity, self).__init__()
@@ -262,13 +254,6 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         yc_embed = self.embed_class(cntxt.yc) # [E,Nc,H]
         mc_embed = self.embed_class(cntxt.mc) # [E,Nc,H]
         out = torch.cat([xc_embed,yc_embed,mc_embed], -1) # [E,Nc,Dx+2H]
-
-        # yc_embed = F.one_hot(cntxt.yc.view(-1), num_classes=self.num_classes) # [E*Nc,K]
-        # yc_embed = yc_embed.view(cntxt.yc.shape[:2] + (self.num_classes,)) # [E,Nc,K]
-        # mc_embed = F.one_hot(cntxt.mc.view(-1), num_classes=self.num_classes) # [E*Nc,K]
-        # mc_embed = mc_embed.view(cntxt.mc.shape[:2] + (self.num_classes,)) # [E,Nc,K]
-        # out = torch.cat([yc_embed, mc_embed], -1) # [E,Nc,2K]
-        # out = out.float()
 
         out = self.embed(out) # [E,Nc,H]
 

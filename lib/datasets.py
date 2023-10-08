@@ -142,10 +142,3 @@ def load_cifar10(data_aug=False, seed=0):
     test_dataset = datasets.CIFAR10(root=ROOT+'/data', train=False, download=True, transform=transform_test)
 
     return train_dataset, val_dataset, test_dataset
-
-
-class UnNormalize(transforms.Normalize):
-    def __init__(self,mean,std,*args,**kwargs):
-        new_mean = [-m/s for m,s in zip(mean,std)]
-        new_std = [1/s for s in std]
-        super().__init__(new_mean, new_std, *args, **kwargs)

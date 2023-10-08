@@ -16,9 +16,8 @@ import torch.backends.cudnn as cudnn
 # local imports
 from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
-from lib.experts import SyntheticExpertOverlap #synthetic_expert_overlap
+from lib.experts import SyntheticExpertOverlap
 from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase
-# from lib.models_fixup import WideResNetBase
 from lib.datasets import load_cifar10, ContextSampler
 
 
@@ -235,38 +234,26 @@ def train(model,
     model = model.to(device)
     cudnn.benchmark = True
 
-    # TODO: remove bias/scale stuff since going back to WRN w/ batch-norm
     if config["warmstart"]:
-        config["epochs"] = 50
-        lr_wrn = 1e-4
-        lr_clf_rej = 1e-4
+        epochs = config["warmstart_epochs"]
+        lr_wrn = config["warmstart_lr"]
+        lr_clf_rej = config["warmstart_lr"]
     else:
-        lr_wrn = config["lr"]
-        lr_clf_rej = 1e-2
-    parameters_bias = [p[1] for p in model.params.base.named_parameters() if 'bias' in p[0]]
-    parameters_scale = [p[1] for p in model.params.base.named_parameters() if 'scale' in p[0]]
-    parameters_others = [p[1] for p in model.params.base.named_parameters() if not ('bias' in p[0] or 'scale' in p[0])]
-    optimizer_base = torch.optim.SGD(
-        [{'params': parameters_bias, 'lr': lr_wrn/10.}, 
-        {'params': parameters_scale, 'lr': lr_wrn/10.}, 
-        {'params': parameters_others}], 
-        lr=lr_wrn,
-        momentum=0.9, 
-        nesterov=True,
-        weight_decay=config["weight_decay"])
-    scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader) * config["epochs"])
+        epochs = config["epochs"]
+        lr_wrn = config["lr_wrn"]
+        lr_clf_rej = config["lr_other"]
+    optimizer_base = torch.optim.SGD(model.params.base.parameters(), 
+                        lr=lr_wrn,
+                        momentum=0.9, 
+                        nesterov=True,
+                        weight_decay=config["weight_decay"])
+    scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader) * epochs)
 
-    
-    parameter_group = [{'params': model.params.clf.parameters()}] # no fixup here
+    parameter_group = [{'params': model.params.clf.parameters()}]
     if config["l2d"] == "pop":
-        parameters_rej_bias = [p[1] for p in model.params.rej.named_parameters() if 'bias' in p[0]]
-        parameters_rej_scale = [p[1] for p in model.params.rej.named_parameters() if 'scale' in p[0]]
-        parameters_rej_others = [p[1] for p in model.params.rej.named_parameters() if not ('bias' in p[0] or 'scale' in p[0])]
-        parameter_group += [{'params': parameters_rej_bias, 'lr': lr_clf_rej/10.}, 
-                            {'params': parameters_rej_scale, 'lr': lr_clf_rej/10.}, 
-                            {'params': parameters_rej_others}]
-    optimizer_new = torch.optim.Adam(parameter_group, lr=lr_clf_rej) #weight_decay=config["weight_decay"]
-    scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * config["epochs"])
+        parameter_group += [{'params': model.params.rej.parameters()}]
+    optimizer_new = torch.optim.Adam(parameter_group, lr=lr_clf_rej)
+    scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * epochs)
 
     optimizer_lst = [optimizer_base, optimizer_new]
     scheduler_lst = [scheduler_base, scheduler_new]
@@ -274,9 +261,8 @@ def train(model,
     # best_validation_loss = np.inf
     # patience = 0
     iters = 0
-    lrate = config["lr"]
 
-    for epoch in range(0, config["epochs"]):
+    for epoch in range(0, epochs):
         iters, train_loss = train_epoch(iters, 
                                         train_loader, 
                                         model, 
@@ -328,7 +314,7 @@ def eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config):
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/gradual_overlap_new/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # TODO
+    config["ckp_dir"] = f"./runs/gradual_overlap/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
     train_data, val_data, test_data = load_cifar10(data_aug=False, seed=config["seed"])
     config["n_classes"] = 10
@@ -389,23 +375,26 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=200)
     # parser.add_argument("--patience", type=int, default=50, 
     # 						help="number of patience steps for early stopping the training.")
-    parser.add_argument("--lr", type=float, default=0.1,
-                            help="learning rate.")
+    parser.add_argument("--lr_wrn", type=float, default=0.1, help="learning rate for wrn.")
+    parser.add_argument("--lr_other", type=float, default=1e-2, help="learning rate for non-wrn model components.")
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     parser.add_argument("--experiment_name", type=str, default="default",
                             help="specify the experiment name. Checkpoints will be saved with this name.")
-    parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
-    ## NEW args
+    
+    ## NEW experiment setup
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
-    parser.add_argument("--n_cntx_per_class", type=int, default=5) # 50
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='single')
+    parser.add_argument("--n_cntx_per_class", type=int, default=5)
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop_attn')
+    parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='ova')
+
+    ## NEW train args
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')
     parser.set_defaults(warmstart=False)
-    # parser.add_argument('--attn', action='store_true') # only used for l2d=pop
-    # parser.set_defaults(attn=False)
+    parser.add_argument("--warmstart_epochs", type=int, default=50)
+    parser.add_argument("--warmstart_lr", type=float, default=1e-4)
     
     config = parser.parse_args().__dict__
     main(config)

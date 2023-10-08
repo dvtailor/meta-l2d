@@ -40,39 +40,3 @@ class SyntheticExpertOverlap():
                 if coin_flip == 0:
                     outs[i] = random.randint(0, self.n_classes-1)
         return outs
-
-
-# def extract_expert_cntxt_pts(images, labels, transform, expert_fn_lst, n_experts=10, n_classes=10, n_cntx_per_class=5, device='cpu'):
-# 	'''
-# 	Returns
-# 		expert_cntx : AttrDict with
-# 			xc : Tensor [E,Nc,3,32,32]
-# 			yc : Tensor [E,Nc]
-# 			mc : Tensor [E,Nc]
-# 		train_data_new  : remaining data
-# 	'''
-# 	# here we make a choice to sample a different {x,y} for each expert
-# 	indices_by_class = np.vstack([np.random.choice(np.where(labels==c)[0], size=n_cntx_per_class*n_experts, replace=False) \
-# 								   for c in range(n_classes)])
-# 	cntxt_xc = []
-# 	cntxt_yc = []
-# 	cntxt_mc = []
-# 	jj=0
-# 	for idx_exp in range(n_experts):
-# 		expert_fn = expert_fn_lst[idx_exp]
-# 		indices = indices_by_class[:,jj:jj+n_cntx_per_class].flatten()
-# 		np.random.shuffle(indices)
-# 		cntxt_xc.append(torch.tensor(np.vstack([transform(img)[None,:] for img in images[indices]]), device=device).unsqueeze(0))
-# 		cntxt_yc.append(torch.tensor(labels[indices], device=device).unsqueeze(0))
-# 		cntxt_mc.append(torch.tensor(expert_fn(cntxt_xc[idx_exp].squeeze(),cntxt_yc[idx_exp].squeeze()), device=device).unsqueeze(0))
-# 		jj += n_cntx_per_class
-
-# 	indices_rest = np.setdiff1d(np.arange(len(images)), indices_by_class.flatten())
-# 	train_data_new = MyVisionDataset(images[indices_rest], labels[indices_rest], transform)
-
-# 	expert_cntxt = AttrDict()
-# 	expert_cntxt.xc = torch.vstack(cntxt_xc)
-# 	expert_cntxt.yc = torch.vstack(cntxt_yc)
-# 	expert_cntxt.mc = torch.vstack(cntxt_mc)
-    
-# 	return expert_cntxt, train_data_new
