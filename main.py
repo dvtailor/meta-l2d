@@ -33,6 +33,9 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 
+# TODO: extend with budget arg; budget=1.0 is existing setup
+# TODO: logger handles eval.log export
+# TODO; eval() function will handle multiple budgets (existing works fine during training)
 def evaluate(model,
             expert,
             loss_fn,
@@ -61,6 +64,7 @@ def evaluate(model,
     losses = []
     model.eval() # Crucial for networks with batchnorm layers!
     with torch.no_grad():
+        # assume data_loader has shuffle=False
         for data in data_loader:
             images, labels = data
             images, labels = images.to(device), labels.to(device)
@@ -76,6 +80,9 @@ def evaluate(model,
             else:
                 outputs = model(images)
 
+            # defer if rejector logit strictly larger than (max of) classifier logits
+            # since max() returns index of first maximal value
+            # NOTE: this is different from paper (geq)
             _, predicted = torch.max(outputs.data, -1)
             
             # sample expert predictions for evaluation data and evaluate costs
@@ -236,8 +243,8 @@ def train(model,
 
     if config["warmstart"]:
         epochs = config["warmstart_epochs"]
-        lr_wrn = config["warmstart_lr"]
-        lr_clf_rej = config["warmstart_lr"]
+        lr_wrn = config["lr_wrn"]/10
+        lr_clf_rej = config["lr_other"]/10
     else:
         epochs = config["epochs"]
         lr_wrn = config["lr_wrn"]
@@ -258,7 +265,7 @@ def train(model,
     optimizer_lst = [optimizer_base, optimizer_new]
     scheduler_lst = [scheduler_base, scheduler_new]
 
-    # best_validation_loss = np.inf
+    best_validation_loss = np.inf
     # patience = 0
     iters = 0
 
@@ -286,10 +293,10 @@ def train(model,
 
         validation_loss = metrics["val_loss"]
 
-        # if validation_loss < best_validation_loss:
-            # best_validation_loss = validation_loss
-        # logger.info("Saving the model with classifier accuracy {}".format(metrics['clf_acc']))
-        torch.save(model.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
+        if validation_loss < best_validation_loss:
+            best_validation_loss = validation_loss
+            # logger.info("Saving the model with system accuracy {}".format(metrics['sys_acc']))
+            torch.save(model.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
         # Additionally save the whole config dict
         with open(os.path.join(config["ckp_dir"], config["experiment_name"] + ".json"), "w") as f:
             json.dump(config, f)
@@ -385,16 +392,15 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     parser.add_argument("--n_cntx_per_class", type=int, default=5)
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop_attn')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='ova')
 
     ## NEW train args
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')
-    parser.set_defaults(warmstart=False)
+    parser.set_defaults(warmstart=True)
     parser.add_argument("--warmstart_epochs", type=int, default=50)
-    parser.add_argument("--warmstart_lr", type=float, default=1e-4)
     
     config = parser.parse_args().__dict__
     main(config)
