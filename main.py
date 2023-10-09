@@ -249,26 +249,31 @@ def train(model,
         epochs = config["epochs"]
         lr_wrn = config["lr_wrn"]
         lr_clf_rej = config["lr_other"]
+    # assuming epochs >= 50
     if epochs > 100:
-        last_epoch = epochs - 50
-    elif epochs > 50:
-        last_epoch = 50
+        milestone_epoch = epochs - 50    
     else:
-        last_epoch = -1
+        milestone_epoch = 50
     optimizer_base = torch.optim.SGD(model.params.base.parameters(), 
                         lr=lr_wrn,
                         momentum=0.9, 
                         nesterov=True,
                         weight_decay=config["weight_decay"])
-    scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader)*epochs, 
-                                                                eta_min=lr_wrn/1000, last_epoch=len(train_loader)*last_epoch)
+    scheduler_base_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader)*milestone_epoch, eta_min=lr_wrn/1000)
+    scheduler_base_constant = torch.optim.lr_scheduler.ConstantLR(optimizer_base, factor=1., total_iters=0)
+    scheduler_base_constant.base_lrs = [lr_wrn/1000 for _ in optimizer_base.param_groups]
+    scheduler_base = torch.optim.lr_scheduler.SequentialLR(optimizer_base, [scheduler_base_cosine,scheduler_base_constant], 
+                                                           milestones=[len(train_loader)*milestone_epoch])
 
     parameter_group = [{'params': model.params.clf.parameters()}]
     if config["l2d"] == "pop":
         parameter_group += [{'params': model.params.rej.parameters()}]
-    optimizer_new = torch.optim.Adam(parameter_group, lr=lr_clf_rej)
-    scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * epochs,
-                                                               eta_min=lr_clf_rej/1000, last_epoch=len(train_loader)*last_epoch)
+    optimizer_new = torch.optim.Adam(parameter_group, lr=lr_clf_rej)    
+    scheduler_new_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader)*milestone_epoch, eta_min=lr_clf_rej/1000)
+    scheduler_new_constant = torch.optim.lr_scheduler.ConstantLR(optimizer_new, factor=1., total_iters=0)
+    scheduler_new_constant.base_lrs = [lr_clf_rej/1000 for _ in optimizer_new.param_groups]
+    scheduler_new = torch.optim.lr_scheduler.SequentialLR(optimizer_new, [scheduler_new_cosine,scheduler_new_constant], 
+                                                          milestones=[len(train_loader)*milestone_epoch])
 
     optimizer_lst = [optimizer_base, optimizer_new]
     scheduler_lst = [scheduler_base, scheduler_new]
@@ -400,7 +405,7 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     parser.add_argument("--n_cntx_per_class", type=int, default=5)
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='single')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
