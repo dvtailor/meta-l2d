@@ -33,9 +33,6 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 
-# TODO: extend with budget arg; budget=1.0 is existing setup
-# TODO: logger handles eval.log export
-# TODO; eval() function will handle multiple budgets (existing works fine during training)
 def evaluate(model,
             expert,
             loss_fn,
@@ -43,15 +40,10 @@ def evaluate(model,
             n_classes,
             data_loader,
             config,
-            logger):
+            logger,
+            budget=1.0):
     '''
-    Computes metrics for deferal
-    -----
-    Arguments:
-    net: model
-    expert: expert model
-    n_classes: number of classes
-    loader: data loader
+    data loader : assumed to be instantiated with shuffle=False
     '''
     correct = 0
     correct_sys = 0
@@ -64,11 +56,13 @@ def evaluate(model,
     losses = []
     model.eval() # Crucial for networks with batchnorm layers!
     with torch.no_grad():
-        # assume data_loader has shuffle=False
+        confidence_diff = []
+        is_rejection = []
+        clf_predictions = []
+        exp_predictions = []
         for data in data_loader:
             images, labels = data
             images, labels = images.to(device), labels.to(device)
-            batch_size = len(images)
 
             if config["l2d"] == 'pop':
                 # sample expert predictions for context
@@ -80,49 +74,68 @@ def evaluate(model,
             else:
                 outputs = model(images)
 
-            # defer if rejector logit strictly larger than (max of) classifier logits
-            # since max() returns index of first maximal value
-            # NOTE: this is different from paper (geq)
-            _, predicted = torch.max(outputs.data, -1)
+            if config["loss_type"] == "ova":
+                probs = F.sigmoid(outputs)
+            else:
+                probs = outputs
             
+            clf_probs, clf_preds = probs[:,:n_classes].max(dim=-1)
+            exp_probs = probs[:,n_classes]
+            confidence_diff.append(clf_probs - exp_probs)
+            clf_predictions.append(clf_preds)
+            # defer if rejector logit strictly larger than (max of) classifier logits
+            # since max() returns index of first maximal value (different from paper (geq))
+            _, predicted = outputs.max(dim=-1)
+            is_rejection.append((predicted==n_classes).int())
+
             # sample expert predictions for evaluation data and evaluate costs
-            exp_prediction = expert(images, labels)
-            m = [0]*batch_size
-            for j in range(0, batch_size):
-                if exp_prediction[j] == labels[j].item():
-                    m[j] = 1
-                else:
-                    m[j] = 0
-            m = torch.tensor(m)
-            m = m.to(device)
+            exp_pred = torch.tensor(expert(images, labels)).to(device)
+            m = (exp_pred==labels).int()
+            exp_predictions.append(exp_pred)
 
             loss = loss_fn(outputs, m, labels, n_classes) # single-expert L2D loss
             losses.append(loss.item())
             expert.resample() # sample new expert
 
+        confidence_diff = torch.cat(confidence_diff)
+        indices_order = confidence_diff.argsort()
+
+        is_rejection = torch.cat(is_rejection)[indices_order]
+        clf_predictions = torch.cat(clf_predictions)[indices_order]
+        exp_predictions = torch.cat(exp_predictions)[indices_order]
+
+        kwargs = {'num_workers': 0, 'pin_memory': True}
+        data_loader_new = torch.utils.data.DataLoader(torch.utils.data.Subset(data_loader.dataset, indices=indices_order),
+                                                      batch_size=data_loader.batch_size, shuffle=False, **kwargs)
+        
+        max_defer = math.floor(budget * len(data_loader.dataset))
+
+        for data in data_loader_new:
+            images, labels = data
+            images, labels = images.to(device), labels.to(device)
+            batch_size = len(images)
+
             for i in range(0, batch_size):
-                r = (predicted[i].item() == n_classes)
-                prediction = predicted[i]
-                if predicted[i] == n_classes:
-                    max_idx = 0
-                    # get second max
-                    for j in range(0, n_classes):
-                        if outputs.data[i][j] >= outputs.data[i][max_idx]:
-                            max_idx = j
-                    prediction = max_idx
+                defer_running = is_rejection[:real_total].sum().item()
+                if defer_running >= max_defer:
+                    r = 0
                 else:
-                    prediction = predicted[i]
+                    r = is_rejection[real_total].item()
+                prediction = clf_predictions[real_total].item()
+                exp_prediction = exp_predictions[real_total].item()
+
                 clf_alone_correct += (prediction == labels[i]).item()
-                exp_alone_correct += (exp_prediction[i] == labels[i].item())
+                exp_alone_correct += (exp_prediction == labels[i].item())
                 if r == 0:
                     total += 1
-                    correct += (predicted[i] == labels[i]).item()
-                    correct_sys += (predicted[i] == labels[i]).item()
+                    correct += (prediction == labels[i]).item()
+                    correct_sys += (prediction == labels[i]).item()
                 if r == 1:
-                    exp += (exp_prediction[i] == labels[i].item())
-                    correct_sys += (exp_prediction[i] == labels[i].item())
+                    exp += (exp_prediction == labels[i].item())
+                    correct_sys += (exp_prediction == labels[i].item())
                     exp_total += 1
                 real_total += 1
+
     cov = str(total) + str("/") + str(real_total)
     metrics = {"cov": cov, "sys_acc": 100 * correct_sys / real_total,
                 "exp_acc": 100 * exp / (exp_total + 0.0002),
@@ -327,14 +340,16 @@ def eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config):
     model = model.to(device)
     kwargs = {'num_workers': 0, 'pin_memory': True}
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
-    logger = get_logger(os.path.join(config["ckp_dir"], "eval.log"))
-    evaluate(model, expert_eval, loss_fn, cntx_sampler, config["n_classes"], test_loader, config, logger)
+    for budget in config["budget"]:
+        logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
+        cntx_sampler.reset()
+        evaluate(model, expert_eval, loss_fn, cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
 
 
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/gradual_overlap/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    config["ckp_dir"] = f"./runs/gradual_overlap/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # NOTE
     os.makedirs(config["ckp_dir"], exist_ok=True)
     train_data, val_data, test_data = load_cifar10(data_aug=False, seed=config["seed"])
     config["n_classes"] = 10
@@ -414,6 +429,9 @@ if __name__ == "__main__":
     parser.add_argument('--warmstart', action='store_true')
     parser.set_defaults(warmstart=False)
     parser.add_argument("--warmstart_epochs", type=int, default=100)
+
+    ## EVAL
+    parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.05,0.1,0.2,1.0])
     
     config = parser.parse_args().__dict__
     main(config)
