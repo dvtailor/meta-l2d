@@ -249,18 +249,26 @@ def train(model,
         epochs = config["epochs"]
         lr_wrn = config["lr_wrn"]
         lr_clf_rej = config["lr_other"]
+    if epochs > 100:
+        last_epoch = epochs - 50
+    elif epochs > 50:
+        last_epoch = 50
+    else:
+        last_epoch = -1
     optimizer_base = torch.optim.SGD(model.params.base.parameters(), 
                         lr=lr_wrn,
                         momentum=0.9, 
                         nesterov=True,
                         weight_decay=config["weight_decay"])
-    scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader) * epochs)
+    scheduler_base = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_base, len(train_loader)*epochs, 
+                                                                eta_min=lr_wrn/1000, last_epoch=len(train_loader)*last_epoch)
 
     parameter_group = [{'params': model.params.clf.parameters()}]
     if config["l2d"] == "pop":
         parameter_group += [{'params': model.params.rej.parameters()}]
     optimizer_new = torch.optim.Adam(parameter_group, lr=lr_clf_rej)
-    scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * epochs)
+    scheduler_new = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_new, len(train_loader) * epochs,
+                                                               eta_min=lr_clf_rej/1000, last_epoch=len(train_loader)*last_epoch)
 
     optimizer_lst = [optimizer_base, optimizer_new]
     scheduler_lst = [scheduler_base, scheduler_new]
@@ -393,14 +401,14 @@ if __name__ == "__main__":
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     parser.add_argument("--n_cntx_per_class", type=int, default=5)
     parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
-    parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='ova')
+    parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')
-    parser.set_defaults(warmstart=True)
-    parser.add_argument("--warmstart_epochs", type=int, default=50)
+    parser.set_defaults(warmstart=False)
+    parser.add_argument("--warmstart_epochs", type=int, default=100)
     
     config = parser.parse_args().__dict__
     main(config)
