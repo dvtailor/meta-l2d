@@ -248,7 +248,9 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
 
         cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
         xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
-        xc_embed = xc_embed.detach() # stop gradient flow to base model
+        # stop gradient flow to base model
+        # for coupled architecture (shared WRN) backprop here could be detrimental to classifier performance; maybe OK for decoupled architecture
+        xc_embed = xc_embed.detach()
         xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,Dx]
 
         yc_embed = self.embed_class(cntxt.yc) # [E,Nc,H]

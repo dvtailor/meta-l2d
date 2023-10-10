@@ -349,7 +349,8 @@ def eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config):
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/gradual_overlap/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # NOTE
+    config["ckp_dir"] = f"./runs/gradual_overlap/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    # config["ckp_dir"] = f"./{config['runs']}/gradual_overlap/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
     train_data, val_data, test_data = load_cifar10(data_aug=False, seed=config["seed"])
     config["n_classes"] = 10
@@ -420,18 +421,21 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     parser.add_argument("--n_cntx_per_class", type=int, default=5)
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='single')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
     parser.add_argument("--val_batch_size", type=int, default=8)
-    parser.add_argument("--test_batch_size", type=int, default=1)
+    parser.add_argument("--test_batch_size", type=int, default=8)
     parser.add_argument('--warmstart', action='store_true')
-    parser.set_defaults(warmstart=False)
+    parser.set_defaults(warmstart=True)
     parser.add_argument("--warmstart_epochs", type=int, default=100)
 
     ## EVAL
     parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.05,0.1,0.2,1.0])
+
+    # # Hack (remove after)
+    # parser.add_argument("--runs", type=str, default="runs")
     
     config = parser.parse_args().__dict__
     main(config)
