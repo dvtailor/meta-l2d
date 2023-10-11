@@ -410,7 +410,7 @@ def main(config):
     experts_train = []
     if config["cifar"] == '20_100':
         n_oracle_superclass = 4
-        n_oracle_subclass = 4 # TODO: maybe 3 instead? higher value will narrow gap between pop and pop_attn
+        n_oracle_subclass = 3 # NOTE: 3 or 4 here. Affects gap between {single,pop,pop_attn}
         for _ in range(10): # n_experts
             # this specifies "superset" of subclasses expert is oracle at
             classes_coarse = np.random.choice(np.arange(config["n_classes"]), size=n_oracle_superclass, replace=False)
@@ -457,7 +457,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=200)
     # parser.add_argument("--patience", type=int, default=50, 
     # 						help="number of patience steps for early stopping the training.")
-    parser.add_argument("--lr_wrn", type=float, default=0.1, help="learning rate for wrn.")
+    parser.add_argument("--lr_wrn", type=float, default=1e-1, help="learning rate for wrn.")
     parser.add_argument("--lr_other", type=float, default=1e-2, help="learning rate for non-wrn model components.")
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     parser.add_argument("--experiment_name", type=str, default="default",
@@ -467,7 +467,7 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     # parser.add_argument("--n_cntx_per_class", type=int, default=3) # moved to main()
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop_attn')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
