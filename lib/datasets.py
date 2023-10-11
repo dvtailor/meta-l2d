@@ -36,21 +36,24 @@ class MyVisionDataset(VisionDataset):
         return len(self.data)
 
 
-# TODO: will have to extend with sparse_labels
 # May want to extend to allow variable context set sizes
 #  i.e. min_cntx_pts_per_class, max_cntx_pts_per_class
 # Since batch size in data loader is fixed, just specify max value and then take subset
 class ContextSampler():
-    def __init__(self, images, labels, transform, cntx_pts_per_class=5, n_classes=10, device='cpu', **kwargs):
+    def __init__(self, images, labels, transform, labels_sparse=None, cntx_pts_per_class=5, n_classes=10, device='cpu', **kwargs):
         self.cntx_pts_per_class = cntx_pts_per_class
         self.n_classes = n_classes
         self.device = device
+        self.with_additional_label = False
+        if labels_sparse is not None:
+            self.with_additional_label = True
 
         self.dataloader_lst = [] # separated by class
         self.data_iter_lst = []
         for cc in range(n_classes):
             indices = np.where(labels==cc)[0]
-            dataset = MyVisionDataset(images[indices], labels[indices], transform)
+            labels_sparse_by_class = labels_sparse[indices] if self.with_additional_label else None
+            dataset = MyVisionDataset(images[indices], labels[indices], transform, labels_sparse_by_class)
             dataloader = torch.utils.data.DataLoader(dataset, batch_size=cntx_pts_per_class, shuffle=True, drop_last=True, **kwargs)
             self.dataloader_lst.append(dataloader)
             self.data_iter_lst.append(iter(dataloader))
@@ -63,18 +66,31 @@ class ContextSampler():
     def _balanced_sample(self):
         input_lst = []
         target_lst = []
+        if self.with_additional_label:
+            target_sparse_lst = []
         for cc in range(self.n_classes):
             try:
-                input, target = next(self.data_iter_lst[cc])
+                data_batch = next(self.data_iter_lst[cc])
             except StopIteration:
                 self.data_iter_lst[cc] = iter(self.dataloader_lst[cc])
-                input, target = next(self.data_iter_lst[cc])
+                data_batch = next(self.data_iter_lst[cc])
+            if self.with_additional_label:
+                input, target, target_sparse = data_batch
+                target_sparse_lst.append(target_sparse)
+            else:
+                input, target = data_batch
             input_lst.append(input)
             target_lst.append(target)
         perm = torch.randperm(self.cntx_pts_per_class*self.n_classes)
         input_all = torch.vstack(input_lst)[perm]
         target_all = torch.cat(target_lst)[perm]
-        input_all, target_all = input_all.to(self.device), target_all.to(self.device)
+        if self.with_additional_label:
+            target_sparse_all = torch.cat(target_sparse_lst)[perm]
+            input_all, target_all, target_sparse_all = input_all.to(self.device), target_all.to(self.device), target_sparse_all.to(self.device)
+            return input_all, target_all, target_sparse_all
+        else:
+            input_all, target_all = input_all.to(self.device), target_all.to(self.device)
+            return input_all, target_all
 
         #### Single dataloader version
         # try:
@@ -83,8 +99,7 @@ class ContextSampler():
         #     self.data_iter = iter(self.dataloader)
         #     input_all, target_all = next(self.data_iter)
         # input_all, target_all = input_all.to(self.device), target_all.to(self.device)
-
-        return input_all, target_all
+    
 
     def sample(self, n_experts=1):
         # input_lst = []
@@ -98,8 +113,13 @@ class ContextSampler():
         # cntx.yc = torch.vstack(target_lst)
         
         ## Since only using {yc,mc} not necessary to resample for multiple experts
-        input, target = self._balanced_sample()
         cntx = AttrDict()
+        if self.with_additional_label:
+            input, target, target_sparse = self._balanced_sample()
+            cntx.yc_sparse = target_sparse.unsqueeze(0).repeat(n_experts,1)
+        else:
+            input, target = self._balanced_sample()
+            cntx.yc_sparse = None
         cntx.xc = input.unsqueeze(0).repeat(n_experts,1,1,1,1)
         cntx.yc = target.unsqueeze(0).repeat(n_experts,1)
 
@@ -129,6 +149,30 @@ def sparse2coarse(targets):
                               16, 19,  2,  4,  6, 19,  5,  5,  8, 19, 
                               18,  1,  2, 15,  6,  0, 17,  8, 14, 13])
     return coarse_labels[targets]
+
+
+def coarse2sparse(targets):
+    sparse_labels = np.array([[4, 30, 55, 72, 95],
+                              [1, 32, 67, 73, 91],
+                              [54, 62, 70, 82, 92],
+                              [9, 10, 16, 28, 61],
+                              [0, 51, 53, 57, 83],
+                              [22, 39, 40, 86, 87],
+                              [5, 20, 25, 84, 94],
+                              [6, 7, 14, 18, 24],
+                              [3, 42, 43, 88, 97],
+                              [12, 17, 37, 68, 76],
+                              [23, 33, 49, 60, 71],
+                              [15, 19, 21, 31, 38],
+                              [34, 63, 64, 66, 75],
+                              [26, 45, 77, 79, 99],
+                              [2, 11, 35, 46, 98],
+                              [27, 29, 44, 78, 93],
+                              [36, 50, 65, 74, 80],
+                              [47, 52, 56, 59, 96],
+                              [8, 13, 48, 58, 90],
+                              [41, 69, 81, 85, 89]])
+    return sparse_labels[targets,:]
 
 
 def load_cifar(variety='10', data_aug=False, seed=0):

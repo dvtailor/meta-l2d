@@ -16,7 +16,7 @@ import torch.backends.cudnn as cudnn
 # local imports
 from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
-from lib.experts import SyntheticExpertOverlap
+from lib.experts import SyntheticExpertOverlap, Cifar20SyntheticExpert
 from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase
 from lib.datasets import load_cifar, ContextSampler
 
@@ -61,13 +61,19 @@ def evaluate(model,
         clf_predictions = []
         exp_predictions = []
         for data in data_loader:
-            images, labels = data
-            images, labels = images.to(device), labels.to(device)
-
+            if len(data) == 2:
+                images, labels = data
+                images, labels = images.to(device), labels.to(device)
+                labels_sparse = None
+            else:
+                images, labels, labels_sparse = data
+                images, labels, labels_sparse = images.to(device), labels.to(device), labels_sparse.to(device)
+            
             if config["l2d"] == 'pop':
                 # sample expert predictions for context
                 expert_cntx = cntx_sampler.sample(n_experts=1)
-                exp_preds = torch.tensor(expert(expert_cntx.xc.squeeze(0), expert_cntx.yc.squeeze()), device=device)
+                cntx_yc_sparse = None if expert_cntx.yc_sparse is None else expert_cntx.yc_sparse.squeeze(0)
+                exp_preds = torch.tensor(expert(expert_cntx.xc.squeeze(0), expert_cntx.yc.squeeze(), cntx_yc_sparse), device=device)
                 expert_cntx.mc = exp_preds.unsqueeze(0)
                 
                 outputs = model(images, expert_cntx).squeeze(0)
@@ -89,7 +95,7 @@ def evaluate(model,
             is_rejection.append((predicted==n_classes).int())
 
             # sample expert predictions for evaluation data and evaluate costs
-            exp_pred = torch.tensor(expert(images, labels)).to(device)
+            exp_pred = torch.tensor(expert(images, labels, labels_sparse)).to(device)
             m = (exp_pred==labels).int()
             exp_predictions.append(exp_pred)
 
@@ -111,7 +117,10 @@ def evaluate(model,
         max_defer = math.floor(budget * len(data_loader.dataset))
 
         for data in data_loader_new:
-            images, labels = data
+            if len(data) == 2:
+                images, labels = data
+            else:
+                images, labels, _ = data
             images, labels = images.to(device), labels.to(device)
             batch_size = len(images)
 
@@ -175,9 +184,14 @@ def train_epoch(iters,
 
     epoch_train_loss = []
 
-    for i, (input, target) in enumerate(train_loader):
-        target = target.to(device)
-        input = input.to(device)
+    for i, data in enumerate(train_loader):
+        if len(data) == 2:
+            input, target = data
+            input, target = input.to(device), target.to(device)
+            target_sparse = None
+        else:
+            input, target, target_sparse = data # ignore additional labels
+            input, target, target_sparse = input.to(device), target.to(device), target_sparse.to(device)
         n_experts = len(experts_train)
 
         if config["l2d"] == 'pop':
@@ -186,7 +200,8 @@ def train_epoch(iters,
             # sample expert predictions for context
             exp_preds_cntx = []
             for idx_exp, expert in enumerate(experts_train):
-                preds = torch.tensor(expert(expert_cntx.xc[idx_exp], expert_cntx.yc[idx_exp]), device=device)
+                cntx_yc_sparse = None if expert_cntx.yc_sparse is None else expert_cntx.yc_sparse[idx_exp]
+                preds = torch.tensor(expert(expert_cntx.xc[idx_exp], expert_cntx.yc[idx_exp], cntx_yc_sparse), device=device)
                 exp_preds_cntx.append(preds.unsqueeze(0))
             expert_cntx.mc = torch.vstack(exp_preds_cntx)
 
@@ -197,7 +212,7 @@ def train_epoch(iters,
         
         loss = 0
         for idx_exp, expert in enumerate(experts_train):
-            m = torch.tensor(expert(input, target), device=device)
+            m = torch.tensor(expert(input, target, target_sparse), device=device)
             costs = (m==target).int()
             loss += loss_fn(outputs[idx_exp], costs, target, n_classes) # loss per expert
         loss /= len(experts_train)
@@ -239,7 +254,8 @@ def train(model,
           loss_fn,
           experts_train,
           expert_eval,
-          cntx_sampler,
+          cntx_sampler_train, 
+          cntx_sampler_eval,
           config):
     logger = get_logger(os.path.join(config["ckp_dir"], "train.log"))
     logger.info(f"p_out={config['p_out']}  seed={config['seed']}")
@@ -304,14 +320,14 @@ def train(model,
                                         epoch,
                                         experts_train,
                                         loss_fn,
-                                        cntx_sampler,
+                                        cntx_sampler_train,
                                         n_classes,
                                         config,
                                         logger)
         metrics = evaluate(model,
                            expert_eval,
                            loss_fn,
-                           cntx_sampler,
+                           cntx_sampler_eval,
                            n_classes,
                            valid_loader,
                            config,
@@ -349,11 +365,20 @@ def eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config):
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/gradual_overlap/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     # config["ckp_dir"] = f"./{config['runs']}/gradual_overlap/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
-    train_data, val_data, test_data = load_cifar(data_aug=False, seed=config["seed"])
-    config["n_classes"] = 10
+    if config["cifar"] == '20_100':
+        config["n_classes"] = 20
+        config["data_aug"] = True
+        config["wrn_widen_factor"] = 4
+        config["n_cntx_per_class"] = 3
+    else:
+        config["n_classes"] = 10
+        config["data_aug"] = False
+        config["wrn_widen_factor"] = 2
+        config["n_cntx_per_class"] = 5
+    train_data, val_data, test_data = load_cifar(variety=config["cifar"], data_aug=config["data_aug"], seed=config["seed"])
 
     with_softmax = False
     if config["loss_type"] == 'softmax':
@@ -367,9 +392,10 @@ def main(config):
         with_attn=True
         config["l2d"] = "pop"
 
-    wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0)
+    wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=config["wrn_widen_factor"], dropRate=0.0)
+
     if config["warmstart"]:
-        warmstart_path = f"./pretrained/seed{str(config['seed'])}/default.pt"
+        warmstart_path = f"./pretrained/cifar{config['cifar']}/seed{str(config['seed'])}/default.pt"
         if not os.path.isfile(warmstart_path):
             raise FileNotFoundError('warmstart model checkpoint not found')
         wrnbase.load_state_dict(torch.load(warmstart_path, map_location=device))
@@ -380,28 +406,48 @@ def main(config):
                                                       with_attn=with_attn, with_softmax=with_softmax)
     else:
         model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax)
-
+    
     experts_train = []
-    for i in range(config["n_classes"]):
-        expert = SyntheticExpertOverlap(class_oracle=i, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
-        experts_train.append(expert)
-    # oracle class sampled every time
-    expert_eval = SyntheticExpertOverlap(n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
+    if config["cifar"] == '20_100':
+        n_oracle_superclass = 4
+        n_oracle_subclass = 4 # TODO: maybe 3 instead? higher value will narrow gap between pop and pop_attn
+        for _ in range(10): # n_experts
+            # this specifies "superset" of subclasses expert is oracle at
+            classes_coarse = np.random.choice(np.arange(config["n_classes"]), size=n_oracle_superclass, replace=False)
+            expert = Cifar20SyntheticExpert(classes_coarse, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'], \
+                                            n_oracle_subclass=n_oracle_subclass)
+            experts_train.append(expert)
+        # oracle class sampled every time
+        expert_eval = Cifar20SyntheticExpert(n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'], \
+                                            n_oracle_subclass=n_oracle_subclass, n_oracle_superclass=n_oracle_superclass)
+    else:
+        for i in range(config["n_classes"]):
+            expert = SyntheticExpertOverlap(class_oracle=i, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
+            experts_train.append(expert)
+        # oracle class sampled every time
+        expert_eval = SyntheticExpertOverlap(n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
     
     # Context set (x,y) sampler (always from train set, even during evaluation)
     images_train = train_data.dataset.data[train_data.indices]
     labels_train = np.array(train_data.dataset.targets)[train_data.indices]
-    transform_train = train_data.dataset.transform # Assuming without data augmentation
+    if config["cifar"] == '20_100':
+        labels_sparse_train = np.array(train_data.dataset.targets_sparse)[train_data.indices]
+    else:
+        labels_sparse_train = None
+    transform_train = train_data.dataset.transform
     kwargs = {'num_workers': 0, 'pin_memory': True}
-    cntx_sampler = ContextSampler(images_train, labels_train, transform_train, cntx_pts_per_class=config["n_cntx_per_class"], \
-                                    n_classes=config["n_classes"], device=device, **kwargs)
+    cntx_sampler_train = ContextSampler(images_train, labels_train, transform_train, labels_sparse_train, \
+                                        cntx_pts_per_class=config["n_cntx_per_class"], n_classes=config["n_classes"], device=device, **kwargs)
+    transform_val = val_data.dataset.transform # Ensure without data augmentation
+    cntx_sampler_eval = ContextSampler(images_train, labels_train, transform_val, labels_sparse_train, \
+                                       cntx_pts_per_class=config["n_cntx_per_class"], n_classes=config["n_classes"], device=device, **kwargs)
     
     if config["mode"] == 'train':
-        train(model, train_data, val_data, loss_fn, experts_train, expert_eval, cntx_sampler, config)
-        cntx_sampler.reset()
-        eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config)
+        train(model, train_data, val_data, loss_fn, experts_train, expert_eval, cntx_sampler_train, cntx_sampler_eval, config)
+        cntx_sampler_eval.reset()
+        eval(model, test_data, loss_fn, expert_eval, cntx_sampler_eval, config)
     else: # evaluation on test data
-        eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config)
+        eval(model, test_data, loss_fn, expert_eval, cntx_sampler_eval, config)
 
 
 if __name__ == "__main__":
@@ -420,11 +466,12 @@ if __name__ == "__main__":
     ## NEW experiment setup
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
-    parser.add_argument("--n_cntx_per_class", type=int, default=5)
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
+    # parser.add_argument("--n_cntx_per_class", type=int, default=3) # moved to main()
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop_attn')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
+    parser.add_argument("--cifar", choices=["10", "20_100"], default="20_100")
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')

@@ -169,7 +169,6 @@ class Identity(nn.Module):
 
 
 class ClassifierRejectorWithContextEmbedder(nn.Module):
-    # Instantiate with actual num_classes (not augmented)
     def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=4, depth_rej=4, with_attn=False, with_softmax=True):
         super(ClassifierRejectorWithContextEmbedder, self).__init__()
         self.num_classes = num_classes
@@ -235,17 +234,6 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         n_experts = cntxt.xc.shape[0]
         batch_size = xt.shape[0]
 
-        # # figure out oracle class manually
-        # expert_count_by_class = torch.zeros((n_experts,self.num_classes), device=xt.device)
-        # label_expert_eq = torch.eq(cntxt.yc, cntxt.mc).int()
-        # for ee in range(n_experts):
-        #     for cc in range(self.num_classes):
-        #         indices_by_class = torch.where(cntxt.yc[ee]==cc)[0]
-        #         expert_count_by_class[ee,cc] = label_expert_eq[ee][indices_by_class].sum()
-        # oracle_class_by_expert = torch.argmax(expert_count_by_class, dim=-1) # [E]
-        # # embedding = F.one_hot(oracle_class_by_expert, num_classes=self.num_classes) # [E,K]
-        # embedding = self.embed_class(oracle_class_by_expert) # [E,H]
-
         cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
         xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
         # stop gradient flow to base model
@@ -261,7 +249,6 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
 
         if not self.with_attn:
             embedding = out.mean(-2) # [E,H]
-            # embedding, _ = out.max(-2) # [E,H]
             # embedding = self.embed_post(embedding) # [E,H]
             embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
         else:
