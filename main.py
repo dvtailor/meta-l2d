@@ -372,7 +372,7 @@ def main(config):
         config["n_classes"] = 20
         config["data_aug"] = True
         config["wrn_widen_factor"] = 4
-        config["n_cntx_per_class"] = 3
+        config["n_cntx_per_class"] = 5
     else:
         config["n_classes"] = 10
         config["data_aug"] = False
