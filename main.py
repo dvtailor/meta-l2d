@@ -365,8 +365,7 @@ def eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config):
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
-    # config["ckp_dir"] = f"./{config['runs']}/gradual_overlap/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    config["ckp_dir"] = f"./runs/cifar{config['cifar']}_new/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # TODO
     os.makedirs(config["ckp_dir"], exist_ok=True)
     if config["cifar"] == '20_100':
         config["n_classes"] = 20
@@ -409,7 +408,7 @@ def main(config):
     
     experts_train = []
     if config["cifar"] == '20_100':
-        n_oracle_superclass = 4
+        n_oracle_superclass = 5 # NOTE
         n_oracle_subclass = 3 # NOTE: 3 or 4 here. Affects gap between {single,pop,pop_attn}
         for _ in range(10): # n_experts
             # this specifies "superset" of subclasses expert is oracle at
@@ -467,7 +466,7 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     # parser.add_argument("--n_cntx_per_class", type=int, default=3) # moved to main()
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop_attn')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
