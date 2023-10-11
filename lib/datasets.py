@@ -10,10 +10,13 @@ from lib.utils import ROOT
 
 
 class MyVisionDataset(VisionDataset):
-    def __init__(self, images, labels, transform):
+    def __init__(self, images, labels, transform, labels_sparse=None):
         super().__init__(ROOT+'/data', transform=transform)
         self.data, self.targets = images, labels
         self.targets = torch.asarray(self.targets, dtype=torch.int64)
+        self.targets_sparse = labels_sparse
+        if self.targets_sparse is not None:
+            self.targets_sparse = torch.asarray(self.targets_sparse, dtype=torch.int64)
 
     def __getitem__(self, index):
         img, target = self.data[index], int(self.targets[index])
@@ -22,12 +25,18 @@ class MyVisionDataset(VisionDataset):
             img = self.transform(img)
         if self.target_transform is not None:
             target = self.target_transform(target)
-        return img, target
+
+        if self.targets_sparse is not None:
+            target_sparse = int(self.targets_sparse[index])
+            return img, target, target_sparse
+        else:
+            return img, target
 
     def __len__(self):
         return len(self.data)
 
 
+# TODO: will have to extend with sparse_labels
 # May want to extend to allow variable context set sizes
 #  i.e. min_cntx_pts_per_class, max_cntx_pts_per_class
 # Since batch size in data loader is fixed, just specify max value and then take subset
@@ -101,7 +110,29 @@ class ContextSampler():
             self.data_iter_lst[cc] = iter(self.dataloader_lst[cc])
 
 
-def load_cifar10(data_aug=False, seed=0):
+# From https://github.com/ryanchankh/cifar100coarse/blob/master/sparse2coarse.py
+def sparse2coarse(targets):
+    """Convert Pytorch CIFAR100 sparse targets to coarse targets.
+
+    Usage:
+        trainset = torchvision.datasets.CIFAR100(path)
+        trainset.targets = sparse2coarse(trainset.targets)
+    """
+    coarse_labels = np.array([ 4,  1, 14,  8,  0,  6,  7,  7, 18,  3,  
+                               3, 14,  9, 18,  7, 11,  3,  9,  7, 11,
+                               6, 11,  5, 10,  7,  6, 13, 15,  3, 15,  
+                               0, 11,  1, 10, 12, 14, 16,  9, 11,  5, 
+                               5, 19,  8,  8, 15, 13, 14, 17, 18, 10, 
+                               16, 4, 17,  4,  2,  0, 17,  4, 18, 17, 
+                               10, 3,  2, 12, 12, 16, 12,  1,  9, 19,  
+                               2, 10,  0,  1, 16, 12,  9, 13, 15, 13, 
+                              16, 19,  2,  4,  6, 19,  5,  5,  8, 19, 
+                              18,  1,  2, 15,  6,  0, 17,  8, 14, 13])
+    return coarse_labels[targets]
+
+
+def load_cifar(variety='10', data_aug=False, seed=0):
+    assert variety in ['10','20_100']
     normalize = transforms.Normalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
                                     std=[x / 255.0 for x in [63.0, 62.1, 66.7]])
 
@@ -126,19 +157,30 @@ def load_cifar10(data_aug=False, seed=0):
         normalize
     ])
 
+    if variety == '10':
+        train_dataset_all = datasets.CIFAR10(root=ROOT+'/data', train=True, download=True, transform=transform_train)
+        train_dataset_all_without_da = datasets.CIFAR10(root=ROOT+'/data', train=True, download=True, transform=transform_test)
+        test_dataset = datasets.CIFAR10(root=ROOT+'/data', train=False, download=True, transform=transform_test)
+    else:
+        train_dataset_all = datasets.CIFAR100(root=ROOT+'/data', train=True, download=True, transform=transform_train)
+        targets_sparse = train_dataset_all.targets # {0,99}
+        targets_coarse = sparse2coarse(targets_sparse).tolist() # {0,19}
+        train_dataset_all = MyVisionDataset(train_dataset_all.data, targets_coarse, transform_train, targets_sparse)
+        train_dataset_all_without_da = MyVisionDataset(train_dataset_all.data, targets_coarse, transform_test, targets_sparse)
+
+        test_dataset = datasets.CIFAR100(root=ROOT+'/data', train=False, download=True, transform=transform_test)
+        test_targets_sparse = test_dataset.targets # {0,99}
+        test_targets_coarse = sparse2coarse(test_targets_sparse).tolist() # {0,19}
+        test_dataset = MyVisionDataset(test_dataset.data, test_targets_coarse, transform_test, test_targets_sparse)
+
     # 90/10 split for train/val size
-    train_dataset_all = datasets.CIFAR10(root=ROOT+'/data', train=True, download=True, transform=transform_train)
     train_size = int(0.90 * len(train_dataset_all))
     val_size = len(train_dataset_all) - train_size
     train_dataset, _ = torch.utils.data.random_split(train_dataset_all, [train_size, val_size], \
                                                      generator=torch.Generator().manual_seed(seed))
-    # Need valid dataset without data augmentation
-    train_dataset_all = datasets.CIFAR10(root=ROOT+'/data', train=True, download=True, transform=transform_test)
-    train_size = int(0.90 * len(train_dataset_all))
-    val_size = len(train_dataset_all) - train_size
-    _, val_dataset = torch.utils.data.random_split(train_dataset_all, [train_size, val_size], \
-                                                   generator=torch.Generator().manual_seed(seed))
     
-    test_dataset = datasets.CIFAR10(root=ROOT+'/data', train=False, download=True, transform=transform_test)
+    # Need valid dataset without data augmentation
+    _, val_dataset = torch.utils.data.random_split(train_dataset_all_without_da, [train_size, val_size], \
+                                                   generator=torch.Generator().manual_seed(seed))
 
     return train_dataset, val_dataset, test_dataset

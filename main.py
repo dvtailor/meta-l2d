@@ -18,7 +18,7 @@ from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
 from lib.experts import SyntheticExpertOverlap
 from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase
-from lib.datasets import load_cifar10, ContextSampler
+from lib.datasets import load_cifar, ContextSampler
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -352,7 +352,7 @@ def main(config):
     config["ckp_dir"] = f"./runs/gradual_overlap/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     # config["ckp_dir"] = f"./{config['runs']}/gradual_overlap/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
-    train_data, val_data, test_data = load_cifar10(data_aug=False, seed=config["seed"])
+    train_data, val_data, test_data = load_cifar(data_aug=False, seed=config["seed"])
     config["n_classes"] = 10
 
     with_softmax = False
@@ -426,7 +426,7 @@ if __name__ == "__main__":
 
     ## NEW train args
     parser.add_argument("--val_batch_size", type=int, default=8)
-    parser.add_argument("--test_batch_size", type=int, default=8)
+    parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')
     parser.set_defaults(warmstart=True)
     parser.add_argument("--warmstart_epochs", type=int, default=100)

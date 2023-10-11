@@ -15,9 +15,8 @@ import torch.backends.cudnn as cudnn
 
 # local imports
 from lib.utils import AverageMeter, accuracy, get_logger
-from lib.wideresnet import Classifier #WideResNetBase
-from lib.models_fixup import WideResNetBase
-from lib.datasets import load_cifar10
+from lib.wideresnet import Classifier, WideResNetBase
+from lib.datasets import load_cifar
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -53,8 +52,12 @@ def evaluate(model,
     criterion = nn.CrossEntropyLoss(reduction='mean')
     with torch.no_grad():
         for data in data_loader:
-            images, labels = data
+            if len(data) == 2:
+                images, labels = data
+            else:
+                images, labels, _ = data # ignore additional labels
             images, labels = images.to(device), labels.to(device)
+
             batch_size = len(images)
 
             outputs = model(images)
@@ -99,10 +102,13 @@ def train_epoch(iters,
     epoch_train_loss = []
 
     criterion = nn.CrossEntropyLoss(reduction='mean')
-    for i, (input, target) in enumerate(train_loader):
-        target = target.to(device)
-        input = input.to(device)
-        
+    for i, data in enumerate(train_loader):
+        if len(data) == 2:
+            input, target = data
+        else:
+            input, target, _ = data # ignore additional labels
+        input, target = input.to(device), target.to(device)
+    
         outputs = model(input) # [B,K]
         loss = criterion(outputs, target)
         epoch_train_loss.append(loss.item())
@@ -152,19 +158,7 @@ def train(model,
     model = model.to(device)
     cudnn.benchmark = True
 
-    parameters_bias = [p[1] for p in model.named_parameters() if 'bias' in p[0]]
-    parameters_scale = [p[1] for p in model.named_parameters() if 'scale' in p[0]]
-    parameters_others = [p[1] for p in model.named_parameters() if not ('bias' in p[0] or 'scale' in p[0])]
-    optimizer = torch.optim.SGD(
-        [{'params': parameters_bias, 'lr': config["lr"]/10.}, 
-        {'params': parameters_scale, 'lr': config["lr"]/10.}, 
-        {'params': parameters_others}], 
-        lr=config["lr"],
-        momentum=0.9, 
-        nesterov=True,
-        weight_decay=config["weight_decay"])
-
-    # optimizer = torch.optim.SGD(model.parameters(), config["lr"], momentum=0.9, nesterov=True, weight_decay=config["weight_decay"])
+    optimizer = torch.optim.SGD(model.parameters(), config["lr"], momentum=0.9, nesterov=True, weight_decay=config["weight_decay"])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, len(train_loader) * config["epochs"])
 
     iters = 0
@@ -206,12 +200,19 @@ def eval(model, test_data, config):
 def main(config):
     set_seed(config["seed"])
     
-    config["ckp_dir"] = f"./pretrained/seed{str(config['seed'])}"
+    config["ckp_dir"] = f"./pretrained/cifar{config['cifar']}/seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
-    train_data, val_data, test_data = load_cifar10(data_aug=False, seed=config["seed"])
-    config["n_classes"] = 10
+    if config["cifar"] == '20_100':
+        config["n_classes"] = 20
+        data_aug = True
+        wrn_widen_factor = 4
+    else:
+        config["n_classes"] = 10
+        data_aug = False
+        wrn_widen_factor = 2
+    train_data, val_data, test_data = load_cifar(variety=config["cifar"], data_aug=data_aug, seed=config["seed"])
 
-    wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0)
+    wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=wrn_widen_factor, dropRate=0.0)
     model = Classifier(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=False)
     
     train(model, train_data, val_data, config)
@@ -233,6 +234,9 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     parser.add_argument("--experiment_name", type=str, default="default",
                             help="specify the experiment name. Checkpoints will be saved with this name.")
+    
+    ## NEW
+    parser.add_argument("--cifar", choices=["10", "20_100"], default="20_100")
     
     config = parser.parse_args().__dict__
     main(config)
