@@ -437,27 +437,35 @@ def main(config):
             expert = SyntheticExpertOverlap(class_oracle=class_oracle, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
             experts_test.append(expert)
     
-    # Context set (x,y) sampler (always from train set, even during evaluation)
-    images_train = train_data.dataset.data[train_data.indices]
-    labels_train = np.array(train_data.dataset.targets)[train_data.indices]
-    if config["cifar"] == '20_100':
-        labels_sparse_train = np.array(train_data.dataset.targets_sparse)[train_data.indices]
-    else:
-        labels_sparse_train = None
-    transform_train = train_data.dataset.transform
+    # Context sampler train-time: just take from full train set (potentially with data augmentation)
     kwargs = {'num_workers': 0, 'pin_memory': True}
-    cntx_sampler_train = ContextSampler(images_train, labels_train, transform_train, labels_sparse_train, \
+    cntx_sampler_train = ContextSampler(train_data.data, train_data.targets, train_data.transform, train_data.targets_sparse, \
                                         n_cntx_pts=config["n_cntx_pts"], device=device, **kwargs)
-    transform_val = val_data.dataset.transform # Ensure without data augmentation
-    cntx_sampler_eval = ContextSampler(images_train, labels_train, transform_val, labels_sparse_train, \
-                                       n_cntx_pts=config["n_cntx_pts"], device=device, **kwargs)
+    
+    # Context sampler val/test-time: partition val/test sets
+    prop_cntx = 0.2
+    val_cntx_size = int(prop_cntx * len(val_data))
+    val_data_cntx, val_data_trgt = torch.utils.data.random_split(val_data, [val_cntx_size, len(val_data)-val_cntx_size], \
+                                                                 generator=torch.Generator().manual_seed(config["seed"]))
+    test_cntx_size = int(prop_cntx * len(test_data))
+    test_data_cntx, test_data_trgt = torch.utils.data.random_split(test_data, [test_cntx_size, len(test_data)-test_cntx_size], \
+                                                                 generator=torch.Generator().manual_seed(config["seed"]))
+    cntx_sampler_val = ContextSampler(images=val_data_cntx.dataset.data[val_data_cntx.indices], 
+                                      labels=val_data_cntx.dataset.targets[val_data_cntx.indices], 
+                                      transform=val_data.transform, 
+                                      labels_sparse=None if config["cifar"]=='10' else val_data_cntx.dataset.targets_sparse[val_data_cntx.indices],
+                                      n_cntx_pts=config["n_cntx_pts"], device=device, **kwargs)
+    cntx_sampler_test = ContextSampler(images=test_data_cntx.dataset.data[test_data_cntx.indices], 
+                                      labels=np.array(test_data_cntx.dataset.targets)[test_data_cntx.indices], 
+                                      transform=test_data.transform, 
+                                      labels_sparse=None if config["cifar"]=='10' else test_data_cntx.dataset.targets_sparse[test_data_cntx.indices],
+                                      n_cntx_pts=config["n_cntx_pts"], device=device, **kwargs)
     
     if config["mode"] == 'train':
-        train(model, train_data, val_data, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_eval, config)
-        cntx_sampler_eval.reset()
-        eval(model, test_data, loss_fn, experts_test, cntx_sampler_eval, config)
+        train(model, train_data, val_data_trgt, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_val, config)
+        eval(model, test_data_trgt, loss_fn, experts_test, cntx_sampler_test, config)
     else: # evaluation on test data
-        eval(model, test_data, loss_fn, experts_test, cntx_sampler_eval, config)
+        eval(model, test_data_trgt, loss_fn, experts_test, cntx_sampler_test, config)
 
 
 if __name__ == "__main__":

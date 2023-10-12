@@ -1,5 +1,6 @@
 from attrdict import AttrDict
 import numpy as np
+from sklearn.model_selection import train_test_split
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as transforms
@@ -186,7 +187,7 @@ def coarse2sparse(targets):
     return sparse_labels[targets,:]
 
 
-def load_cifar(variety='10', data_aug=False, seed=0):
+def load_cifar(variety='10', data_aug=False, seed=0, train_split=0.9):
     assert variety in ['10','20_100']
     normalize = transforms.Normalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
                                     std=[x / 255.0 for x in [63.0, 62.1, 66.7]])
@@ -214,28 +215,22 @@ def load_cifar(variety='10', data_aug=False, seed=0):
 
     if variety == '10':
         train_dataset_all = datasets.CIFAR10(root=ROOT+'/data', train=True, download=True, transform=transform_train)
-        train_dataset_all_without_da = datasets.CIFAR10(root=ROOT+'/data', train=True, download=True, transform=transform_test)
+        images_train, images_val, targets_train, targets_val = \
+            train_test_split(train_dataset_all.data, train_dataset_all.targets, train_size=train_split, random_state=seed, stratify=train_dataset_all.targets)
+        train_dataset = MyVisionDataset(images_train, targets_train, transform_train)
+        val_dataset = MyVisionDataset(images_val, targets_val, transform_test)
         test_dataset = datasets.CIFAR10(root=ROOT+'/data', train=False, download=True, transform=transform_test)
     else:
         train_dataset_all = datasets.CIFAR100(root=ROOT+'/data', train=True, download=True, transform=transform_train)
         targets_sparse = train_dataset_all.targets # {0,99}
         targets_coarse = sparse2coarse(targets_sparse).tolist() # {0,19}
-        train_dataset_all = MyVisionDataset(train_dataset_all.data, targets_coarse, transform_train, targets_sparse)
-        train_dataset_all_without_da = MyVisionDataset(train_dataset_all.data, targets_coarse, transform_test, targets_sparse)
-
+        images_train, images_val, targets_train, targets_val, targets_sparse_train, targets_sparse_val = \
+            train_test_split(train_dataset_all.data, targets_coarse, targets_sparse, train_size=train_split, random_state=seed, stratify=targets_coarse)
+        train_dataset = MyVisionDataset(images_train, targets_train, transform_train, targets_sparse_train)
+        val_dataset = MyVisionDataset(images_val, targets_val, transform_test, targets_sparse_val)
         test_dataset = datasets.CIFAR100(root=ROOT+'/data', train=False, download=True, transform=transform_test)
         test_targets_sparse = test_dataset.targets # {0,99}
         test_targets_coarse = sparse2coarse(test_targets_sparse).tolist() # {0,19}
         test_dataset = MyVisionDataset(test_dataset.data, test_targets_coarse, transform_test, test_targets_sparse)
-
-    # 90/10 split for train/val size
-    train_size = int(0.90 * len(train_dataset_all))
-    val_size = len(train_dataset_all) - train_size
-    train_dataset, _ = torch.utils.data.random_split(train_dataset_all, [train_size, val_size], \
-                                                     generator=torch.Generator().manual_seed(seed))
-    
-    # Need valid dataset without data augmentation
-    _, val_dataset = torch.utils.data.random_split(train_dataset_all_without_da, [train_size, val_size], \
-                                                   generator=torch.Generator().manual_seed(seed))
 
     return train_dataset, val_dataset, test_dataset
