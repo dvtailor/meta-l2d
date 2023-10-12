@@ -236,7 +236,7 @@ if __name__ == "__main__":
                             help="specify the experiment name. Checkpoints will be saved with this name.")
     
     ## NEW
-    parser.add_argument("--cifar", choices=["10", "20_100"], default="20_100")
+    parser.add_argument("--cifar", choices=["10", "20_100"], default="10")
     
     config = parser.parse_args().__dict__
     main(config)
