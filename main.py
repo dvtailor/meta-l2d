@@ -34,7 +34,7 @@ def set_seed(seed):
 
 
 def evaluate(model,
-            expert,
+            experts_test,
             loss_fn,
             cntx_sampler,
             n_classes,
@@ -69,6 +69,9 @@ def evaluate(model,
                 images, labels, labels_sparse = data
                 images, labels, labels_sparse = images.to(device), labels.to(device), labels_sparse.to(device)
             
+            choice = random.randint(0, len(experts_test)-1)
+            expert = experts_test[choice]
+            
             if config["l2d"] == 'pop':
                 # sample expert predictions for context
                 expert_cntx = cntx_sampler.sample(n_experts=1)
@@ -101,7 +104,6 @@ def evaluate(model,
 
             loss = loss_fn(outputs, m, labels, n_classes) # single-expert L2D loss
             losses.append(loss.item())
-            expert.resample() # sample new expert
 
         confidence_diff = torch.cat(confidence_diff)
         indices_order = confidence_diff.argsort()
@@ -253,7 +255,7 @@ def train(model,
           validation_dataset,
           loss_fn,
           experts_train,
-          expert_eval,
+          experts_test,
           cntx_sampler_train, 
           cntx_sampler_eval,
           config):
@@ -325,7 +327,7 @@ def train(model,
                                         config,
                                         logger)
         metrics = evaluate(model,
-                           expert_eval,
+                           experts_test,
                            loss_fn,
                            cntx_sampler_eval,
                            n_classes,
@@ -351,7 +353,7 @@ def train(model,
         # 	break	
 
 
-def eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config):
+def eval(model, test_data, loss_fn, experts_test, cntx_sampler, config):
     model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
     model = model.to(device)
     kwargs = {'num_workers': 0, 'pin_memory': True}
@@ -359,7 +361,7 @@ def eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config):
     for budget in config["budget"]:
         logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
         cntx_sampler.reset()
-        evaluate(model, expert_eval, loss_fn, cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
+        evaluate(model, experts_test, loss_fn, cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
 
 
 def main(config):
@@ -406,26 +408,34 @@ def main(config):
     else:
         model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax)
     
+    config["n_experts"] = 10 # assume exactly divisible by 2
     experts_train = []
+    experts_test = []
     if config["cifar"] == '20_100':
-        n_oracle_superclass = 5 # NOTE
-        n_oracle_subclass = 3 # NOTE: 3 or 4 here. Affects gap between {single,pop,pop_attn}
-        for _ in range(10): # n_experts
+        n_oracle_superclass = 4
+        n_oracle_subclass = 3 # 3 or 4 here. Affects gap between {single,pop,pop_attn}
+        for _ in range(config["n_experts"]): # n_experts
             # this specifies "superset" of subclasses expert is oracle at
             classes_coarse = np.random.choice(np.arange(config["n_classes"]), size=n_oracle_superclass, replace=False)
             expert = Cifar20SyntheticExpert(classes_coarse, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'], \
                                             n_oracle_subclass=n_oracle_subclass)
             experts_train.append(expert)
-        # oracle class sampled every time
-        expert_eval = Cifar20SyntheticExpert(n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'], \
-                                            n_oracle_subclass=n_oracle_subclass, n_oracle_superclass=n_oracle_superclass)
+        experts_test += experts_train[:config["n_experts"]//2]
+        for _ in range(config["n_experts"]//2):
+            classes_coarse = np.random.choice(np.arange(config["n_classes"]), size=n_oracle_superclass, replace=False)
+            expert = Cifar20SyntheticExpert(classes_coarse, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'], \
+                                            n_oracle_subclass=n_oracle_subclass)
+            experts_test.append(expert)
     else:
-        for _ in range(10): # n_experts
+        for _ in range(config["n_experts"]): # train
             class_oracle = random.randint(0, config["n_classes"]-1)
             expert = SyntheticExpertOverlap(class_oracle=class_oracle, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
             experts_train.append(expert)
-        # oracle class sampled every time
-        expert_eval = SyntheticExpertOverlap(n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
+        experts_test += experts_train[:config["n_experts"]//2] # pick 50% experts from experts_train (order not matter)
+        for _ in range(config["n_experts"]//2): # then sample 50% new experts
+            class_oracle = random.randint(0, config["n_classes"]-1)
+            expert = SyntheticExpertOverlap(class_oracle=class_oracle, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
+            experts_test.append(expert)
     
     # Context set (x,y) sampler (always from train set, even during evaluation)
     images_train = train_data.dataset.data[train_data.indices]
@@ -443,11 +453,11 @@ def main(config):
                                        n_cntx_pts=config["n_cntx_pts"], device=device, **kwargs)
     
     if config["mode"] == 'train':
-        train(model, train_data, val_data, loss_fn, experts_train, expert_eval, cntx_sampler_train, cntx_sampler_eval, config)
+        train(model, train_data, val_data, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_eval, config)
         cntx_sampler_eval.reset()
-        eval(model, test_data, loss_fn, expert_eval, cntx_sampler_eval, config)
+        eval(model, test_data, loss_fn, experts_test, cntx_sampler_eval, config)
     else: # evaluation on test data
-        eval(model, test_data, loss_fn, expert_eval, cntx_sampler_eval, config)
+        eval(model, test_data, loss_fn, experts_test, cntx_sampler_eval, config)
 
 
 if __name__ == "__main__":
