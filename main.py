@@ -365,7 +365,7 @@ def eval(model, test_data, loss_fn, expert_eval, cntx_sampler, config):
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/cifar{config['cifar']}_new/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # TODO
+    config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
     if config["cifar"] == '20_100':
         config["n_classes"] = 20
@@ -420,8 +420,9 @@ def main(config):
         expert_eval = Cifar20SyntheticExpert(n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'], \
                                             n_oracle_subclass=n_oracle_subclass, n_oracle_superclass=n_oracle_superclass)
     else:
-        for i in range(config["n_classes"]):
-            expert = SyntheticExpertOverlap(class_oracle=i, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
+        for _ in range(10): # n_experts
+            class_oracle = random.randint(0, config["n_classes"]-1)
+            expert = SyntheticExpertOverlap(class_oracle=class_oracle, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
             experts_train.append(expert)
         # oracle class sampled every time
         expert_eval = SyntheticExpertOverlap(n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
