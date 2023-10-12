@@ -373,7 +373,7 @@ def main(config):
         config["n_classes"] = 20
         config["data_aug"] = True
         config["wrn_widen_factor"] = 4
-        config["n_cntx_pts"] = 100
+        config["n_cntx_pts"] = 50
     else:
         config["n_classes"] = 10
         config["data_aug"] = False
@@ -489,7 +489,7 @@ if __name__ == "__main__":
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
-    parser.add_argument("--cifar", choices=["10", "20_100"], default="10")
+    parser.add_argument("--cifar", choices=["10", "20_100"], default="20_100")
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')
