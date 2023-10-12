@@ -371,12 +371,12 @@ def main(config):
         config["n_classes"] = 20
         config["data_aug"] = True
         config["wrn_widen_factor"] = 4
-        config["n_cntx_per_class"] = 5
+        config["n_cntx_pts"] = 100
     else:
         config["n_classes"] = 10
         config["data_aug"] = False
         config["wrn_widen_factor"] = 2
-        config["n_cntx_per_class"] = 5
+        config["n_cntx_pts"] = 50
     train_data, val_data, test_data = load_cifar(variety=config["cifar"], data_aug=config["data_aug"], seed=config["seed"])
 
     with_softmax = False
@@ -436,10 +436,10 @@ def main(config):
     transform_train = train_data.dataset.transform
     kwargs = {'num_workers': 0, 'pin_memory': True}
     cntx_sampler_train = ContextSampler(images_train, labels_train, transform_train, labels_sparse_train, \
-                                        cntx_pts_per_class=config["n_cntx_per_class"], n_classes=config["n_classes"], device=device, **kwargs)
+                                        n_cntx_pts=config["n_cntx_pts"], device=device, **kwargs)
     transform_val = val_data.dataset.transform # Ensure without data augmentation
     cntx_sampler_eval = ContextSampler(images_train, labels_train, transform_val, labels_sparse_train, \
-                                       cntx_pts_per_class=config["n_cntx_per_class"], n_classes=config["n_classes"], device=device, **kwargs)
+                                       n_cntx_pts=config["n_cntx_pts"], device=device, **kwargs)
     
     if config["mode"] == 'train':
         train(model, train_data, val_data, loss_fn, experts_train, expert_eval, cntx_sampler_train, cntx_sampler_eval, config)
@@ -465,12 +465,12 @@ if __name__ == "__main__":
     ## NEW experiment setup
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
-    # parser.add_argument("--n_cntx_per_class", type=int, default=3) # moved to main()
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop_attn')
+    # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
-    parser.add_argument("--cifar", choices=["10", "20_100"], default="20_100")
+    parser.add_argument("--cifar", choices=["10", "20_100"], default="10")
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')
