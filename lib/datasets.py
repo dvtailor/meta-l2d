@@ -246,8 +246,7 @@ def load_gtsrb(seed=0, train_split=0.5):
     transform_test = transform_train
 
     train_dataset_all = datasets.GTSRB(root=ROOT+'/data', split='train', download=True)
-    # transform_resize = transforms.Resize((32, 32)) # Resize all images to 32x32 (originals are variable size)
-    transform_resize = transforms.Resize((28, 28))
+    transform_resize = transforms.Resize((32, 32)) # Resize all images to 32x32 (originals are variable size)
 
     train_images_all = np.vstack([np.array(transform_resize(train_dataset_all[i][0]))[None,:] for i in range(len(train_dataset_all))])
     train_targets_all = [train_dataset_all[i][1] for i in range(len(train_dataset_all))]
