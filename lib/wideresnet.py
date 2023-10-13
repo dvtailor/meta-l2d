@@ -169,10 +169,10 @@ class Identity(nn.Module):
 
 
 class ClassifierRejectorWithContextEmbedder(nn.Module):
-    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=4, with_attn=False, with_softmax=True):
+    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=4, with_cross_attn=False, with_self_attn=False, with_softmax=True):
         super(ClassifierRejectorWithContextEmbedder, self).__init__()
         self.num_classes = num_classes
-        self.with_attn = with_attn
+        self.with_cross_attn = with_cross_attn
         self.with_softmax = with_softmax
 
         self.base_model = base_model
@@ -185,16 +185,18 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.rejector[-1].bias.data.zero_()
         self.embed_class = nn.Embedding(num_classes, dim_hid)
         
-        self.embed = build_mlp(n_features+dim_hid*2, dim_hid, dim_hid, depth_embed)
-        # self.embed = nn.Sequential(
-        #     build_mlp(n_features+dim_hid*2, dim_hid, dim_hid, depth_embed),
-        #     nn.ReLU(True),
-        #     SelfAttn(dim_hid, dim_hid)
-        # )
+        if not with_self_attn:
+            self.embed = build_mlp(n_features+dim_hid*2, dim_hid, dim_hid, depth_embed)
+        else:
+            self.embed = nn.Sequential(
+                build_mlp(n_features+dim_hid*2, dim_hid, dim_hid, depth_embed-2),
+                nn.ReLU(True),
+                SelfAttn(dim_hid, dim_hid)
+            )
         # self.embed_post = build_mlp_fixup(dim_hid, dim_hid, dim_hid, 2)
         rej_mdl_lst = [self.rejector, self.embed_class, self.embed] #self.embed_post
 
-        if with_attn:
+        if with_cross_attn:
             self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
             rej_mdl_lst += [self.attn]
         
@@ -247,7 +249,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
 
         out = self.embed(out) # [E,Nc,H]
 
-        if not self.with_attn:
+        if not self.with_cross_attn:
             embedding = out.mean(-2) # [E,H]
             # embedding = self.embed_post(embedding) # [E,H]
             embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]

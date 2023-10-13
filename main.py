@@ -373,7 +373,7 @@ def main(config):
         config["n_classes"] = 20
         config["data_aug"] = True
         config["wrn_widen_factor"] = 4
-        config["n_cntx_pts"] = 50
+        config["n_cntx_pts"] = 100
     else:
         config["n_classes"] = 10
         config["data_aug"] = False
@@ -388,9 +388,12 @@ def main(config):
     else: # ova
         loss_fn = ova
 
-    with_attn=False
-    if len(config["l2d"].split("_"))==2:
-        with_attn=True
+    with_cross_attn=False
+    with_self_attn=False
+    if len(config["l2d"].split("_")) > 2: # pop_attn_sa
+        with_self_attn=True
+    if len(config["l2d"].split("_")) > 1: # pop_attn
+        with_cross_attn=True
         config["l2d"] = "pop"
 
     wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=config["wrn_widen_factor"], dropRate=0.0)
@@ -404,7 +407,7 @@ def main(config):
     
     if config["l2d"] == "pop":
         model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
-                                                      with_attn=with_attn, with_softmax=with_softmax)
+                                                      with_cross_attn=with_cross_attn, with_self_attn=with_self_attn, with_softmax=with_softmax)
     else:
         model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax)
     
@@ -485,7 +488,7 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_attn_sa'], default='pop')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
