@@ -221,7 +221,7 @@ def train_epoch(iters,
         epoch_train_loss.append(loss.item())
 
         # measure accuracy and record loss
-        prec1 = accuracy(outputs.data[0,:,:10], target, topk=(1,))[0] # just measures clf accuracy
+        prec1 = accuracy(outputs.data[0,:,:n_classes], target, topk=(1,))[0] # just measures clf accuracy
         losses.update(loss.data.item(), input.size(0))
         top1.update(prec1.item(), input.size(0))
 
