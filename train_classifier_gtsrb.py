@@ -15,8 +15,9 @@ import torch.backends.cudnn as cudnn
 
 # local imports
 from lib.utils import AverageMeter, accuracy, get_logger
-from lib.wideresnet import Classifier, WideResNetBase
-from lib.datasets import load_cifar
+from lib.wideresnet import Classifier
+from lib.resnet import resnet20
+from lib.datasets import load_gtsrb
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -200,26 +201,25 @@ def eval(model, test_data, config):
 def main(config):
     set_seed(config["seed"])
     
-    config["ckp_dir"] = f"./pretrained/cifar{config['cifar']}/seed{str(config['seed'])}"
+    config["ckp_dir"] = f"./pretrained/gtsrb/seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
-    if config["cifar"] == '20_100':
-        config["n_classes"] = 20
-        data_aug = True
-        wrn_widen_factor = 4
-    else:
-        config["n_classes"] = 10
-        data_aug = False
-        wrn_widen_factor = 2
-    train_data, val_data, test_data = load_cifar(variety=config["cifar"], data_aug=data_aug, seed=config["seed"])
+    
+    config["n_classes"] = 43
 
-    wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=wrn_widen_factor, dropRate=0.0)
-    model = Classifier(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=False)
+    train_data, val_data, test_data = load_gtsrb(seed=config["seed"])
+
+    # model = Classifier(resnetbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=False)
+    # model_base = make_medmnist_cnn()
+    # n_features=128
+    model_base = resnet20()
+    n_features = model_base.n_features
+    model = Classifier(model_base, num_classes=int(config["n_classes"]), n_features=n_features, with_softmax=False)
     
     train(model, train_data, val_data, config)
     eval(model, test_data, config)
 
-    # save only WideResNet part
-    torch.save(wrnbase.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
+    # save only resnet part
+    torch.save(model_base.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
     with open(os.path.join(config["ckp_dir"], config["experiment_name"] + ".json"), "w") as f:
         json.dump(config, f)
     
@@ -228,15 +228,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--train_batch_size", type=int, default=128)
-    parser.add_argument("--epochs", type=int, default=200)
-    parser.add_argument("--lr", type=float, default=0.1,
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--lr", type=float, default=1e-2,
                             help="learning rate.")
-    parser.add_argument("--weight_decay", type=float, default=5e-4)
+    parser.add_argument("--weight_decay", type=float, default=1e-3)
     parser.add_argument("--experiment_name", type=str, default="default",
                             help="specify the experiment name. Checkpoints will be saved with this name.")
-    
-    ## NEW
-    parser.add_argument("--cifar", choices=["10", "20_100"], default="10")
     
     config = parser.parse_args().__dict__
     main(config)

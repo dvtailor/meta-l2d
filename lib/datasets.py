@@ -234,3 +234,32 @@ def load_cifar(variety='10', data_aug=False, seed=0, train_split=0.9):
         test_dataset = MyVisionDataset(test_dataset.data, test_targets_coarse, transform_test, test_targets_sparse)
 
     return train_dataset, val_dataset, test_dataset
+
+
+def load_gtsrb(seed=0, train_split=0.5):
+    normalize = transforms.Normalize(mean=[x / 255.0 for x in [87.1, 79.7, 82.0]],
+                                    std=[x / 255.0 for x in [69.8, 66.5, 67.9]])
+    transform_train = transforms.Compose([
+        transforms.ToTensor(),
+        normalize,
+    ])
+    transform_test = transform_train
+
+    train_dataset_all = datasets.GTSRB(root=ROOT+'/data', split='train', download=True)
+    # transform_resize = transforms.Resize((32, 32)) # Resize all images to 32x32 (originals are variable size)
+    transform_resize = transforms.Resize((28, 28))
+
+    train_images_all = np.vstack([np.array(transform_resize(train_dataset_all[i][0]))[None,:] for i in range(len(train_dataset_all))])
+    train_targets_all = [train_dataset_all[i][1] for i in range(len(train_dataset_all))]
+
+    images_train, images_val, targets_train, targets_val = \
+            train_test_split(train_images_all, train_targets_all, train_size=train_split, random_state=seed, stratify=train_targets_all)
+    train_dataset = MyVisionDataset(images_train, targets_train, transform_train)
+    val_dataset = MyVisionDataset(images_val, targets_val, transform_test)
+
+    test_dataset = datasets.GTSRB(root=ROOT+'/data', split='test', download=True)
+    test_images = np.vstack([np.array(transform_resize(test_dataset[i][0]))[None,:] for i in range(len(test_dataset))])
+    test_targets = [test_dataset[i][1] for i in range(len(test_dataset))]
+    test_dataset = MyVisionDataset(test_images, test_targets, transform_test)
+
+    return train_dataset, val_dataset, test_dataset

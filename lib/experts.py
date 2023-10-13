@@ -10,12 +10,14 @@ from lib.datasets import MyVisionDataset, coarse2sparse
 
 # expert correct in class_oracle with prob. p_in; correct on other classes with prob. p_out
 class SyntheticExpertOverlap():
-    def __init__(self, class_oracle=None, n_classes=10, p_in=1.0, p_out=0.1):
+    def __init__(self, classes_oracle, n_classes=10, p_in=1.0, p_out=0.1):
         self.expert_static = True
-        self.class_oracle = class_oracle
-        if self.class_oracle is None:
-            self.class_oracle = random.randint(0, n_classes-1)
-            self.expert_static = False
+        self.classes_oracle = classes_oracle
+        if isinstance(self.classes_oracle, int):
+            self.classes_oracle = [self.classes_oracle]
+        # if self.class_oracle is None:
+        #     self.class_oracle = random.randint(0, n_classes-1)
+        #     self.expert_static = False
         self.n_classes = n_classes
         self.p_in = p_in
         self.p_out = p_out
@@ -28,7 +30,7 @@ class SyntheticExpertOverlap():
         batch_size = labels.size()[0]
         outs = [0] * batch_size
         for i in range(0, batch_size):
-            if labels[i].item() == self.class_oracle:
+            if labels[i].item() in self.classes_oracle:
                 coin_flip = np.random.binomial(1, self.p_in)
                 if coin_flip == 1:
                     outs[i] = labels[i].item()

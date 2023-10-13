@@ -16,9 +16,10 @@ import torch.backends.cudnn as cudnn
 # local imports
 from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
-from lib.experts import SyntheticExpertOverlap, Cifar20SyntheticExpert
-from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase
-from lib.datasets import load_cifar, ContextSampler
+from lib.experts import SyntheticExpertOverlap
+from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder
+from lib.resnet import resnet20
+from lib.datasets import load_gtsrb, ContextSampler
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -366,20 +367,13 @@ def eval(model, test_data, loss_fn, experts_test, cntx_sampler, config):
 
 def main(config):
     set_seed(config["seed"])
-    # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    config["ckp_dir"] = f"./runs/gtsrb/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
-    if config["cifar"] == '20_100':
-        config["n_classes"] = 20
-        config["data_aug"] = True
-        config["wrn_widen_factor"] = 4
-        config["n_cntx_pts"] = 100
-    else:
-        config["n_classes"] = 10
-        config["data_aug"] = False
-        config["wrn_widen_factor"] = 2
-        config["n_cntx_pts"] = 50
-    train_data, val_data, test_data = load_cifar(variety=config["cifar"], data_aug=config["data_aug"], seed=config["seed"])
+    
+    config["n_classes"] = 43
+    config["n_cntx_pts"] = 50
+    
+    train_data, val_data, test_data = load_gtsrb(seed=config["seed"])
 
     with_softmax = False
     if config["loss_type"] == 'softmax':
@@ -396,49 +390,42 @@ def main(config):
         with_cross_attn=True
         config["l2d"] = "pop"
 
-    wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=config["wrn_widen_factor"], dropRate=0.0)
+    model_base = resnet20()
 
     if config["warmstart"]:
-        warmstart_path = f"./pretrained/cifar{config['cifar']}/seed{str(config['seed'])}/default.pt"
+        warmstart_path = f"./pretrained/gtsrb/seed{str(config['seed'])}/default.pt"
         if not os.path.isfile(warmstart_path):
             raise FileNotFoundError('warmstart model checkpoint not found')
-        wrnbase.load_state_dict(torch.load(warmstart_path, map_location=device))
-        wrnbase = wrnbase.to(device)
+        model_base.load_state_dict(torch.load(warmstart_path, map_location=device))
+        model_base = model_base.to(device)
     
+
+    dim_hid = 128
+    dim_class_embed = 64 # same as resnet features
+    depth_embed=4
+    depth_reject=2
     if config["l2d"] == "pop":
-        model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
-                                                      with_cross_attn=with_cross_attn, with_self_attn=with_self_attn, with_softmax=with_softmax)
+        model = ClassifierRejectorWithContextEmbedder(model_base, num_classes=int(config["n_classes"]), n_features=model_base.n_features, \
+                                                      with_cross_attn=with_cross_attn, with_self_attn=with_self_attn, with_softmax=with_softmax, \
+                                                        dim_hid=dim_hid, depth_embed=depth_embed, depth_rej=depth_reject, dim_class_embed=dim_class_embed)
     else:
-        model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax)
+        model = ClassifierRejector(model_base, num_classes=int(config["n_classes"]), n_features=model_base.n_features, with_softmax=with_softmax)
     
     config["n_experts"] = 10 # assume exactly divisible by 2
+    n_classes_oracle = 5
     experts_train = []
     experts_test = []
-    if config["cifar"] == '20_100':
-        n_oracle_superclass = 4
-        n_oracle_subclass = 3 # 3 or 4 here. Affects gap between {single,pop,pop_attn}
-        for _ in range(config["n_experts"]): # n_experts
-            # this specifies "superset" of subclasses expert is oracle at
-            classes_coarse = np.random.choice(np.arange(config["n_classes"]), size=n_oracle_superclass, replace=False)
-            expert = Cifar20SyntheticExpert(classes_coarse, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'], \
-                                            n_oracle_subclass=n_oracle_subclass)
-            experts_train.append(expert)
-        experts_test += experts_train[:config["n_experts"]//2]
-        for _ in range(config["n_experts"]//2):
-            classes_coarse = np.random.choice(np.arange(config["n_classes"]), size=n_oracle_superclass, replace=False)
-            expert = Cifar20SyntheticExpert(classes_coarse, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'], \
-                                            n_oracle_subclass=n_oracle_subclass)
-            experts_test.append(expert)
-    else:
-        for _ in range(config["n_experts"]): # train
-            class_oracle = random.randint(0, config["n_classes"]-1)
-            expert = SyntheticExpertOverlap(classes_oracle=class_oracle, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
-            experts_train.append(expert)
-        experts_test += experts_train[:config["n_experts"]//2] # pick 50% experts from experts_train (order not matter)
-        for _ in range(config["n_experts"]//2): # then sample 50% new experts
-            class_oracle = random.randint(0, config["n_classes"]-1)
-            expert = SyntheticExpertOverlap(classes_oracle=class_oracle, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
-            experts_test.append(expert)
+    for _ in range(config["n_experts"]): # train
+        # class_oracle = random.randint(0, config["n_classes"]-1)
+        classes_oracle = np.random.choice(np.arange(config["n_classes"]), size=n_classes_oracle, replace=False)
+        expert = SyntheticExpertOverlap(classes_oracle, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
+        experts_train.append(expert)
+    experts_test += experts_train[:config["n_experts"]//2] # pick 50% experts from experts_train (order not matter)
+    for _ in range(config["n_experts"]//2): # then sample 50% new experts
+        # class_oracle = random.randint(0, config["n_classes"]-1)
+        classes_oracle = np.random.choice(np.arange(config["n_classes"]), size=n_classes_oracle, replace=False)
+        expert = SyntheticExpertOverlap(classes_oracle, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
+        experts_test.append(expert)
     
     # Context sampler train-time: just take from full train set (potentially with data augmentation)
     kwargs = {'num_workers': 0, 'pin_memory': True}
@@ -456,16 +443,17 @@ def main(config):
     cntx_sampler_val = ContextSampler(images=val_data_cntx.dataset.data[val_data_cntx.indices], 
                                       labels=val_data_cntx.dataset.targets[val_data_cntx.indices], 
                                       transform=val_data.transform, 
-                                      labels_sparse=None if config["cifar"]=='10' else val_data_cntx.dataset.targets_sparse[val_data_cntx.indices],
+                                      labels_sparse=None,
                                       n_cntx_pts=config["n_cntx_pts"], device=device, **kwargs)
     cntx_sampler_test = ContextSampler(images=test_data_cntx.dataset.data[test_data_cntx.indices], 
                                       labels=np.array(test_data_cntx.dataset.targets)[test_data_cntx.indices], 
                                       transform=test_data.transform, 
-                                      labels_sparse=None if config["cifar"]=='10' else test_data_cntx.dataset.targets_sparse[test_data_cntx.indices],
+                                      labels_sparse=None,
                                       n_cntx_pts=config["n_cntx_pts"], device=device, **kwargs)
     
     if config["mode"] == 'train':
-        train(model, train_data, val_data_trgt, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_val, config)
+        train(model, train_data, val_data_trgt, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_val, config) # NOTE
+        # train(model, train_data, test_data_trgt, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_test, config)
         eval(model, test_data_trgt, loss_fn, experts_test, cntx_sampler_test, config)
     else: # evaluation on test data
         eval(model, test_data_trgt, loss_fn, experts_test, cntx_sampler_test, config)
@@ -475,28 +463,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=1071)
     parser.add_argument("--train_batch_size", type=int, default=128)
-    parser.add_argument("--epochs", type=int, default=200)
-    # parser.add_argument("--patience", type=int, default=50, 
-    # 						help="number of patience steps for early stopping the training.")
-    parser.add_argument("--lr_wrn", type=float, default=1e-1, help="learning rate for wrn.")
-    parser.add_argument("--lr_other", type=float, default=1e-2, help="learning rate for non-wrn model components.")
-    parser.add_argument("--weight_decay", type=float, default=5e-4)
+    parser.add_argument("--epochs", type=int, default=150)
+    parser.add_argument("--lr_wrn", type=float, default=1e-2, help="learning rate for resnet.")
+    parser.add_argument("--lr_other", type=float, default=1e-3, help="learning rate for non-wrn model components.")
+    parser.add_argument("--weight_decay", type=float, default=1e-3)
     parser.add_argument("--experiment_name", type=str, default="default",
                             help="specify the experiment name. Checkpoints will be saved with this name.")
     
     ## NEW experiment setup
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
-    # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
     parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_attn_sa'], default='pop')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
-    parser.add_argument("--cifar", choices=["10", "20_100"], default="20_100")
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')
-    parser.set_defaults(warmstart=True)
+    parser.set_defaults(warmstart=False)
     parser.add_argument("--warmstart_epochs", type=int, default=100)
 
     ## EVAL
