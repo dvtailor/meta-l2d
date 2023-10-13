@@ -110,7 +110,7 @@ class ClassifierRejector(nn.Module):
     def __init__(self, base_model, num_classes, n_features, with_softmax=True):
         super(ClassifierRejector, self).__init__()
         self.base_model_clf = base_model
-        # self.base_model_rej = copy.deepcopy(self.base_model_clf)
+        self.base_model_rej = copy.deepcopy(self.base_model_clf)
         
         self.fc_clf = nn.Linear(n_features, num_classes)
         self.fc_clf.bias.data.zero_()
@@ -120,7 +120,7 @@ class ClassifierRejector(nn.Module):
 
         self.with_softmax = with_softmax
         self.params = nn.ModuleDict({
-            'base': nn.ModuleList([self.base_model_clf]), # self.base_model_rej
+            'base': nn.ModuleList([self.base_model_clf,self.base_model_rej]),
             'clf' : nn.ModuleList([self.fc_clf,self.fc_rej])
         })
 
@@ -128,7 +128,7 @@ class ClassifierRejector(nn.Module):
         out = self.base_model_clf(x)
         logits_clf = self.fc_clf(out) # [B,K]
 
-        # out = self.base_model_rej(x)
+        out = self.base_model_rej(x)
         logit_rej = self.fc_rej(out) # [B,1]
 
         out = torch.cat([logits_clf,logit_rej], -1) # [B,K+1]
@@ -177,7 +177,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.with_softmax = with_softmax
 
         self.base_model = base_model
-        # self.base_model_rej = copy.deepcopy(self.base_model_clf)
+        self.base_model_rej = copy.deepcopy(self.base_model)
         
         self.fc = nn.Linear(n_features, num_classes)
         self.fc.bias.data.zero_()
@@ -202,7 +202,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
             rej_mdl_lst += [self.attn]
         
         self.params = nn.ModuleDict({
-            'base': nn.ModuleList([self.base_model]), # self.base_model_rej
+            'base': nn.ModuleList([self.base_model,self.base_model_rej]),
             'clf' : nn.ModuleList([self.fc]),
             'rej': nn.ModuleList(rej_mdl_lst)
         })
@@ -223,7 +223,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         logits_clf = logits_clf.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K]
 
         embedding = self.encode(cntxt, x) # [E,B,H]
-        x_embed = self.base_model(x) # [B,Dx]
+        x_embed = self.base_model_rej(x) # [B,Dx]
         x_embed = x_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
         packed = torch.cat([x_embed,embedding], -1) # [E,B,Dx+H]
         logit_rej = self.rejector(packed) # [E,B,1]
@@ -238,10 +238,10 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         batch_size = xt.shape[0]
 
         cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
-        xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
+        xc_embed = self.base_model_rej(cntxt_xc) # [E*Nc,Dx]
         # stop gradient flow to base model
         # for coupled architecture (shared WRN) backprop here could be detrimental to classifier performance; maybe OK for decoupled architecture
-        xc_embed = xc_embed.detach()
+        # xc_embed = xc_embed.detach()
         xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,Dx]
 
         yc_embed = self.embed_class(cntxt.yc) # [E,Nc,H]
@@ -255,8 +255,8 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
             # embedding = self.embed_post(embedding) # [E,H]
             embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
         else:
-            xt_embed = self.base_model(xt) # [B,Dx]
-            xt_embed = xt_embed.detach() # stop gradients flowing
+            xt_embed = self.base_model_rej(xt) # [B,Dx]
+            # xt_embed = xt_embed.detach() # stop gradients flowing
             xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
             embedding = self.attn(xt_embed, xc_embed, out) # [E,B,H]
         
