@@ -160,3 +160,25 @@ def make_resnet20_frn_fn(num_classes, activation=torch.nn.ReLU):
     return make_resnet_fn(
         num_classes, depth=20, normalization_layer=FilterResponseNorm_layer,
         activation=activation)
+
+
+# def make_medmnist_cnn(n_channels=3, num_classes=10):
+#     act = torch.nn.ReLU
+#     return nn.Sequential(
+#         nn.Conv2d(n_channels, 6, kernel_size=5, padding=2),
+#         nn.BatchNorm2d(6),
+#         act(),
+#         nn.AvgPool2d(2, stride=2, padding=0),
+#         nn.Conv2d(6, 16, kernel_size=5, padding=0),
+#         nn.BatchNorm2d(16),
+#         act(),
+#         nn.AvgPool2d(2, stride=2, padding=0),
+#         nn.Flatten(),
+#         nn.Linear(400, 120),
+#         nn.BatchNorm1d(120),
+#         act(),
+#         nn.Linear(120, 64)
+#         # nn.Linear(120, 84)
+#         # act(),
+#         # nn.Linear(84, num_classes),
+#     )

@@ -18,8 +18,8 @@ from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
 from lib.experts import SyntheticExpertOverlap
 from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder
-# from lib.resnet import resnet20
-from lib.resnet_frn import make_resnet20_frn_fn
+from lib.resnet import resnet20
+# from lib.resnet_frn import make_resnet20_frn_fn, make_medmnist_cnn
 from lib.datasets import load_gtsrb, ContextSampler
 
 
@@ -391,8 +391,10 @@ def main(config):
         with_cross_attn=True
         config["l2d"] = "pop"
 
-    # model_base = resnet20()
-    model_base = make_resnet20_frn_fn(config["n_classes"])
+    # model_base = make_medmnist_cnn()
+    # model_base.n_features = 64
+    model_base = resnet20()
+    # model_base = make_resnet20_frn_fn(config["n_classes"])
 
     if config["warmstart"]:
         warmstart_path = f"./pretrained/gtsrb/seed{str(config['seed'])}/default.pt"
@@ -403,7 +405,7 @@ def main(config):
     
 
     dim_hid = 128
-    dim_class_embed = 64 # same as resnet features
+    dim_class_embed = 128 #64 # same as resnet features
     depth_embed=5 #4
     depth_reject=3 #2
     if config["l2d"] == "pop":
@@ -413,8 +415,8 @@ def main(config):
     else:
         model = ClassifierRejector(model_base, num_classes=int(config["n_classes"]), n_features=model_base.n_features, with_softmax=with_softmax)
     
-    config["n_experts"] = 20 # assume exactly divisible by 2
-    n_classes_oracle = 2
+    config["n_experts"] = 10 #20 # assume exactly divisible by 2
+    n_classes_oracle = 5 #2
     experts_train = []
     experts_test = []
     for _ in range(config["n_experts"]): # train
@@ -454,8 +456,7 @@ def main(config):
                                       n_cntx_pts=config["n_cntx_pts"], device=device, **kwargs)
     
     if config["mode"] == 'train':
-        train(model, train_data, val_data_trgt, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_val, config) # NOTE
-        # train(model, train_data, test_data_trgt, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_test, config)
+        train(model, train_data, val_data_trgt, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_val, config)
         eval(model, test_data_trgt, loss_fn, experts_test, cntx_sampler_test, config)
     else: # evaluation on test data
         eval(model, test_data_trgt, loss_fn, experts_test, cntx_sampler_test, config)
@@ -464,7 +465,7 @@ def main(config):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=1071)
-    parser.add_argument("--train_batch_size", type=int, default=128)
+    parser.add_argument("--train_batch_size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=150)
     parser.add_argument("--lr_wrn", type=float, default=1e-2, help="learning rate for resnet.")
     parser.add_argument("--lr_other", type=float, default=1e-3, help="learning rate for non-wrn model components.")
