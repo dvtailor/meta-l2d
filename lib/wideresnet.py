@@ -107,11 +107,16 @@ class Classifier(nn.Module):
     
 
 class ClassifierRejector(nn.Module):
-    def __init__(self, base_model, num_classes, n_features, with_softmax=True):
+    def __init__(self, base_model, num_classes, n_features, with_softmax=True, decouple=False):
         super(ClassifierRejector, self).__init__()
         self.base_model_clf = base_model
-        self.base_model_rej = copy.deepcopy(self.base_model_clf)
-        
+        base_mdl_lst = [self.base_model_clf]
+        if decouple:
+            self.base_model_rej = copy.deepcopy(self.base_model_clf)
+            base_mdl_lst += [self.base_model_rej]
+        else:
+            self.base_model_rej = self.base_model_clf
+
         self.fc_clf = nn.Linear(n_features, num_classes)
         self.fc_clf.bias.data.zero_()
 
@@ -120,7 +125,7 @@ class ClassifierRejector(nn.Module):
 
         self.with_softmax = with_softmax
         self.params = nn.ModuleDict({
-            'base': nn.ModuleList([self.base_model_clf,self.base_model_rej]),
+            'base': nn.ModuleList(base_mdl_lst),
             'clf' : nn.ModuleList([self.fc_clf,self.fc_rej])
         })
 
@@ -170,14 +175,20 @@ class Identity(nn.Module):
 
 class ClassifierRejectorWithContextEmbedder(nn.Module):
     def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=4, dim_class_embed=128,
-                 with_cross_attn=False, with_self_attn=False, with_softmax=True):
+                 with_cross_attn=False, with_self_attn=False, with_softmax=True, decouple=False):
         super(ClassifierRejectorWithContextEmbedder, self).__init__()
         self.num_classes = num_classes
         self.with_cross_attn = with_cross_attn
         self.with_softmax = with_softmax
+        self.decouple = decouple
 
         self.base_model = base_model
-        self.base_model_rej = copy.deepcopy(self.base_model)
+        base_mdl_lst = [self.base_model]
+        if self.decouple:
+            self.base_model_rej = copy.deepcopy(self.base_model)
+            base_mdl_lst += [self.base_model_rej]
+        else:
+            self.base_model_rej = self.base_model
         
         self.fc = nn.Linear(n_features, num_classes)
         self.fc.bias.data.zero_()
@@ -202,7 +213,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
             rej_mdl_lst += [self.attn]
         
         self.params = nn.ModuleDict({
-            'base': nn.ModuleList([self.base_model,self.base_model_rej]),
+            'base': nn.ModuleList(base_mdl_lst),
             'clf' : nn.ModuleList([self.fc]),
             'rej': nn.ModuleList(rej_mdl_lst)
         })
@@ -241,7 +252,8 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         xc_embed = self.base_model_rej(cntxt_xc) # [E*Nc,Dx]
         # stop gradient flow to base model
         # for coupled architecture (shared WRN) backprop here could be detrimental to classifier performance; maybe OK for decoupled architecture
-        # xc_embed = xc_embed.detach()
+        if not self.decouple:
+            xc_embed = xc_embed.detach()
         xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,Dx]
 
         yc_embed = self.embed_class(cntxt.yc) # [E,Nc,H]
@@ -256,7 +268,8 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
             embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
         else:
             xt_embed = self.base_model_rej(xt) # [B,Dx]
-            # xt_embed = xt_embed.detach() # stop gradients flowing
+            if not self.decouple:
+                xt_embed = xt_embed.detach() # stop gradients flowing
             xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
             embedding = self.attn(xt_embed, xc_embed, out) # [E,B,H]
         

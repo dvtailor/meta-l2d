@@ -18,7 +18,8 @@ from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
 from lib.experts import SyntheticExpertOverlap
 from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder
-from lib.resnet import resnet20
+# from lib.resnet import resnet20
+from lib.resnet_frn import make_resnet20_frn_fn
 from lib.datasets import load_gtsrb, ContextSampler
 
 
@@ -390,7 +391,8 @@ def main(config):
         with_cross_attn=True
         config["l2d"] = "pop"
 
-    model_base = resnet20()
+    # model_base = resnet20()
+    model_base = make_resnet20_frn_fn(config["n_classes"])
 
     if config["warmstart"]:
         warmstart_path = f"./pretrained/gtsrb/seed{str(config['seed'])}/default.pt"
@@ -402,8 +404,8 @@ def main(config):
 
     dim_hid = 128
     dim_class_embed = 64 # same as resnet features
-    depth_embed=4
-    depth_reject=2
+    depth_embed=5 #4
+    depth_reject=3 #2
     if config["l2d"] == "pop":
         model = ClassifierRejectorWithContextEmbedder(model_base, num_classes=int(config["n_classes"]), n_features=model_base.n_features, \
                                                       with_cross_attn=with_cross_attn, with_self_attn=with_self_attn, with_softmax=with_softmax, \
@@ -411,8 +413,8 @@ def main(config):
     else:
         model = ClassifierRejector(model_base, num_classes=int(config["n_classes"]), n_features=model_base.n_features, with_softmax=with_softmax)
     
-    config["n_experts"] = 10 # assume exactly divisible by 2
-    n_classes_oracle = 5
+    config["n_experts"] = 20 # assume exactly divisible by 2
+    n_classes_oracle = 2
     experts_train = []
     experts_test = []
     for _ in range(config["n_experts"]): # train

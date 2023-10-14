@@ -405,11 +405,14 @@ def main(config):
         wrnbase.load_state_dict(torch.load(warmstart_path, map_location=device))
         wrnbase = wrnbase.to(device)
     
+    decouple = True # NOTE
     if config["l2d"] == "pop":
         model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
-                                                      with_cross_attn=with_cross_attn, with_self_attn=with_self_attn, with_softmax=with_softmax)
+                                                      with_cross_attn=with_cross_attn, with_self_attn=with_self_attn, with_softmax=with_softmax, \
+                                                      decouple=decouple)
     else:
-        model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax)
+        model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax, \
+                                   decouple=decouple)
     
     config["n_experts"] = 10 # assume exactly divisible by 2
     experts_train = []
