@@ -187,6 +187,40 @@ def coarse2sparse(targets):
     return sparse_labels[targets,:]
 
 
+def load_ham10000(data_aug=False, seed=0, train_split=0.9, path='./Data/'):
+    train_dataset = torch.load(path + 'train_data.pt')
+    val_dataset = torch.load(path + 'validation_data.pt')
+    test_dataset = torch.load(path + 'test_data.pt')
+
+    if data_aug:
+        transform_train = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: F.pad(x.unsqueeze(0),
+                                              (4, 4, 4, 4), mode='reflect').squeeze()),
+            transforms.ToPILImage(),
+            transforms.RandomCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+        ])
+    else:
+        transform_train = transforms.Compose([])
+
+    transform_test = transforms.Compose([])
+
+    images_train = train_dataset["data"]
+    targets_train = train_dataset["labels"]
+    images_val = val_dataset["data"]
+    targets_val = val_dataset["labels"]
+    images_test = test_dataset["data"]
+    targets_test = test_dataset["labels"]
+
+    train_dataset = MyVisionDataset(images_train, targets_train, transform_train)
+    val_dataset = MyVisionDataset(images_val, targets_val, transform_test)
+    test_dataset = MyVisionDataset(images_test, targets_test, transform_test)
+
+    return train_dataset, val_dataset, test_dataset
+
+
 def load_cifar(variety='10', data_aug=False, seed=0, train_split=0.9):
     assert variety in ['10','20_100']
     normalize = transforms.Normalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],

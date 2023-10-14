@@ -163,3 +163,7 @@ cython_debug/
 data
 *.json
 *.pt
+Data #from HAM10000
+
+# Pycharm
+.idea
