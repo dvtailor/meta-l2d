@@ -219,11 +219,12 @@ def eval(model, test_data, config):
     logger = get_logger(os.path.join(config["ckp_dir"], "eval.log"))
     evaluate(model, config["n_classes"], test_loader, config, logger)
 
+TLD = "/pretrained_model"
 
 def main(config):
     set_seed(config["seed"])
 
-    config["ckp_dir"] = f"./pretrained/ham10000/seed{str(config['seed'])}"
+    config["ckp_dir"] = f"{TLD}/pretrained/ham10000/seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
 
     config["n_classes"] = 7

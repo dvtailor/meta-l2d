@@ -76,7 +76,7 @@ class ham10000_expert(Dataset):
             ])
 
     @classmethod
-    def read(cls, path='./Data/', data_aug=False):
+    def read(cls, path='/Data/', data_aug=False):
         train = torch.load(path + 'train_data.pt')
         val = torch.load(path + 'validation_data.pt')
         test = torch.load(path + 'test_data.pt')

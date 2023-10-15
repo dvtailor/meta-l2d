@@ -371,10 +371,12 @@ def eval(model, test_data, loss_fn, experts_test, cntx_sampler, config):
         evaluate(model, experts_test, loss_fn, cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
 
 
+RESULTS_TLD = "/results"
+PRETRAINED_TLD = "/pretrained_model"
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/ham10000/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    config["ckp_dir"] = f"{RESULTS_TLD}/runs/ham10000/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
 
     config["n_classes"] = 7
@@ -383,7 +385,7 @@ def main(config):
     config["n_experts"] = 0
     config["patience"] = 10
     config["data_aug"] = False
-    config["n_cntx_pts"] = config["n_classes"]*5
+    config["n_cntx_pts"] = config["n_classes"]*10
 
     train_data, val_data, test_data = load_ham10000(data_aug=config["data_aug"],
                                                     seed=config["seed"])
@@ -406,7 +408,7 @@ def main(config):
     model = ResNet34_defer(int(config["n_classes"]))
 
     if config["warmstart"]:
-        warmstart_path = f"./pretrained/ham10000/seed{str(config['seed'])}/default_0_experts_seed_{str(config['seed'])}.pt"
+        warmstart_path = f"{PRETRAINED_TLD}/pretrained/ham10000/seed{str(config['seed'])}/default_0_experts_seed_{str(config['seed'])}.pt"
         if not os.path.isfile(warmstart_path):
             raise FileNotFoundError('warmstart model checkpoint not found')
         model.load_state_dict(torch.load(warmstart_path, map_location=device))

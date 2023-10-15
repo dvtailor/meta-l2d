@@ -186,11 +186,12 @@ def coarse2sparse(targets):
                               [41, 69, 81, 85, 89]])
     return sparse_labels[targets,:]
 
+DATASET_TLD = "/dataset/"
 
 def load_ham10000(data_aug=False, seed=0, train_split=0.9, path='./Data/'):
-    train_dataset = torch.load(path + 'train_data.pt')
-    val_dataset = torch.load(path + 'validation_data.pt')
-    test_dataset = torch.load(path + 'test_data.pt')
+    train_dataset = torch.load(DATASET_TLD + 'train_data.pt')
+    val_dataset = torch.load(DATASET_TLD + 'validation_data.pt')
+    test_dataset = torch.load(DATASET_TLD + 'test_data.pt')
 
     if data_aug:
         transform_train = transforms.Compose([
