@@ -237,7 +237,19 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         batch_size = xt.shape[0]
 
         cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
-        xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
+
+        def transform_context(context, model, bs=35):
+            num_partitions = context.shape[0] // bs
+            context_list = []
+            with torch.no_grad():
+                for i in range(num_partitions):
+                    context_feat = model(context[i * bs:(i + 1) * bs, :, :, :])
+                    context_list.append(context_feat)
+            return torch.cat(context_list, 0)
+
+        xc_embed = transform_context(cntxt_xc, self.base_model, 35)
+        # xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
+
         # stop gradient flow to base model
         # for coupled architecture (shared WRN) backprop here could be detrimental to classifier performance; maybe OK for decoupled architecture
         xc_embed = xc_embed.detach()

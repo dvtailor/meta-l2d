@@ -91,10 +91,10 @@ def train_epoch(iters,
     epoch_train_loss = []
 
     for i, (input, target, hpred) in enumerate(train_loader):
-        if iters < warmup_iters:
-            lr = lrate * float(iters) / warmup_iters
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
+        # if iters < warmup_iters:
+        #     lr = lrate * float(iters) / warmup_iters
+        #     for param_group in optimizer.param_groups:
+        #         param_group['lr'] = lr
 
         target = target.to(device)
         input = input.to(device)
@@ -126,8 +126,8 @@ def train_epoch(iters,
         loss.backward()
         optimizer.step()
 
-        if not iters < warmup_iters:
-            scheduler.step()
+        # if not iters < warmup_iters:
+        #     scheduler.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -163,8 +163,11 @@ def train(model,
     model = model.to(device)
     cudnn.benchmark = True
 
-    optimizer = torch.optim.Adam(model.parameters(), config["lr"],
-                                 weight_decay=config["weight_decay"])
+    # optimizer = torch.optim.Adam(model.parameters(), config["lr"],
+    #                              weight_decay=config["weight_decay"])
+    optimizer = torch.optim.SGD(model.parameters(), config["lr"],
+                                momentum=0.9, nesterov=True,
+                                weight_decay=config["weight_decay"])
     loss_fn = nn.NLLLoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, len(train_loader) * config["epochs"])
@@ -244,7 +247,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--train_batch_size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=200)
-    parser.add_argument("--lr", type=float, default=0.1,
+    parser.add_argument("--lr", type=float, default=0.01,
                         help="learning rate.")
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     parser.add_argument("--experiment_name", type=str, default="default",

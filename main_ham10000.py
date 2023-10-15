@@ -376,8 +376,6 @@ PRETRAINED_TLD = "/pretrained_model"
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"{RESULTS_TLD}/runs/ham10000/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
-    os.makedirs(config["ckp_dir"], exist_ok=True)
 
     config["n_classes"] = 7
     config["warmup_epochs"] = 0
@@ -385,7 +383,10 @@ def main(config):
     config["n_experts"] = 0
     config["patience"] = 10
     config["data_aug"] = False
-    config["n_cntx_pts"] = config["n_classes"]*10
+    # config["n_cntx_pts"] = config["n_classes"]*5
+
+    config["ckp_dir"] = f"{RESULTS_TLD}/runs/ham10000/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}_n_cntx_pts{str(config['n_cntx_pts'])})"
+    os.makedirs(config["ckp_dir"], exist_ok=True)
 
     train_data, val_data, test_data = load_ham10000(data_aug=config["data_aug"],
                                                     seed=config["seed"])
@@ -484,7 +485,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--train_batch_size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=200)
-    # parser.add_argument("--patience", type=int, default=50,
+    # parser.add_argument("--patiee", type=int, default=50,
     # 						help="number of patience steps for early stopping the training.")
     parser.add_argument("--lr_wrn", type=float, default=1e-1, help="learning rate for wrn.")
     parser.add_argument("--lr_other", type=float, default=1e-2, help="learning rate for non-wrn model components.")
@@ -495,7 +496,7 @@ if __name__ == "__main__":
     ## NEW experiment setup
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1)  # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
-    # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
+    parser.add_argument("--n_cntx_pts", type=int, default=0)  # moved to main()
     parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_attn_sa'], default='pop')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
