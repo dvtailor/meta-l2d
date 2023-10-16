@@ -7,6 +7,7 @@ import shutil
 import time
 import json
 import functools
+import copy
 import numpy as np
 import torch
 import torch.nn as nn
@@ -19,7 +20,6 @@ from lib.losses import cross_entropy, ova
 from lib.experts import SyntheticExpertOverlap
 from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder
 from lib.resnet import resnet20
-# from lib.resnet_frn import make_resnet20_frn_fn, make_medmnist_cnn
 from lib.datasets import load_gtsrb, ContextSampler
 
 
@@ -42,11 +42,14 @@ def evaluate(model,
             n_classes,
             data_loader,
             config,
-            logger,
-            budget=1.0):
+            logger=None,
+            budget=1.0,
+            n_finetune_steps=0,
+            lr_finetune=1e-1):
     '''
     data loader : assumed to be instantiated with shuffle=False
     '''
+    model_state_dict = model.state_dict()
     correct = 0
     correct_sys = 0
     exp = 0
@@ -56,31 +59,54 @@ def evaluate(model,
     clf_alone_correct = 0
     exp_alone_correct = 0
     losses = []
+    is_finetune = (config["l2d"] == 'single') and (n_finetune_steps > 0)
+    # Ideally should put batchnorm in train-mode in finetune step but gave worse performance
+    # Also bit unsure about my finetuning implementation
     model.eval() # Crucial for networks with batchnorm layers!
-    with torch.no_grad():
-        confidence_diff = []
-        is_rejection = []
-        clf_predictions = []
-        exp_predictions = []
-        for data in data_loader:
-            if len(data) == 2:
-                images, labels = data
-                images, labels = images.to(device), labels.to(device)
-                labels_sparse = None
-            else:
-                images, labels, labels_sparse = data
-                images, labels, labels_sparse = images.to(device), labels.to(device), labels_sparse.to(device)
-            
-            choice = random.randint(0, len(experts_test)-1)
-            expert = experts_test[choice]
-            
+    # with torch.no_grad():
+    confidence_diff = []
+    is_rejection = []
+    clf_predictions = []
+    exp_predictions = []
+    for data in data_loader:
+        if len(data) == 2:
+            images, labels = data
+            images, labels = images.to(device), labels.to(device)
+            labels_sparse = None
+        else:
+            images, labels, labels_sparse = data
+            images, labels, labels_sparse = images.to(device), labels.to(device), labels_sparse.to(device)
+        
+        choice = random.randint(0, len(experts_test)-1)
+        expert = experts_test[choice]
+
+        # sample expert predictions for context
+        expert_cntx = cntx_sampler.sample(n_experts=1)
+        cntx_yc_sparse = None if expert_cntx.yc_sparse is None else expert_cntx.yc_sparse.squeeze(0)
+        exp_preds = torch.tensor(expert(expert_cntx.xc.squeeze(0), expert_cntx.yc.squeeze(), cntx_yc_sparse), device=device)
+        expert_cntx.mc = exp_preds.unsqueeze(0)
+
+        if is_finetune:
+            model_backup = copy.deepcopy(model)
+            images_cntx = expert_cntx.xc.squeeze(0)
+            targets_cntx = expert_cntx.yc.squeeze(0)
+            costs = (exp_preds==targets_cntx).int()
+            for _ in range(n_finetune_steps):
+                outputs_cntx = model(images_cntx)
+                loss = loss_fn(outputs_cntx, costs, targets_cntx, n_classes)
+                model.zero_grad()
+                loss.backward()
+                with torch.no_grad():
+                    for param in model.params.clf.parameters():
+                        new_param = param - lr_finetune * param.grad
+                        param.copy_(new_param)
+                # grad_clf = torch.autograd.grad(loss, model.params.clf.parameters())
+                # with torch.no_grad():
+                #     for param, grad in zip(model.params.clf.parameters(), grad_clf):
+                #         param.copy_(param - lr_finetune * grad)
+        
+        with torch.no_grad():
             if config["l2d"] == 'pop':
-                # sample expert predictions for context
-                expert_cntx = cntx_sampler.sample(n_experts=1)
-                cntx_yc_sparse = None if expert_cntx.yc_sparse is None else expert_cntx.yc_sparse.squeeze(0)
-                exp_preds = torch.tensor(expert(expert_cntx.xc.squeeze(0), expert_cntx.yc.squeeze(), cntx_yc_sparse), device=device)
-                expert_cntx.mc = exp_preds.unsqueeze(0)
-                
                 outputs = model(images, expert_cntx).squeeze(0)
             else:
                 outputs = model(images)
@@ -107,47 +133,53 @@ def evaluate(model,
             loss = loss_fn(outputs, m, labels, n_classes) # single-expert L2D loss
             losses.append(loss.item())
 
-        confidence_diff = torch.cat(confidence_diff)
-        indices_order = confidence_diff.argsort()
+            if is_finetune: # restore model on single-expert
+                model = model_backup
+                model.load_state_dict(model_state_dict)
+                model = model.to(device)
+                model.eval()
 
-        is_rejection = torch.cat(is_rejection)[indices_order]
-        clf_predictions = torch.cat(clf_predictions)[indices_order]
-        exp_predictions = torch.cat(exp_predictions)[indices_order]
+    confidence_diff = torch.cat(confidence_diff)
+    indices_order = confidence_diff.argsort()
 
-        kwargs = {'num_workers': 0, 'pin_memory': True}
-        data_loader_new = torch.utils.data.DataLoader(torch.utils.data.Subset(data_loader.dataset, indices=indices_order),
-                                                      batch_size=data_loader.batch_size, shuffle=False, **kwargs)
-        
-        max_defer = math.floor(budget * len(data_loader.dataset))
+    is_rejection = torch.cat(is_rejection)[indices_order]
+    clf_predictions = torch.cat(clf_predictions)[indices_order]
+    exp_predictions = torch.cat(exp_predictions)[indices_order]
 
-        for data in data_loader_new:
-            if len(data) == 2:
-                images, labels = data
+    kwargs = {'num_workers': 0, 'pin_memory': True}
+    data_loader_new = torch.utils.data.DataLoader(torch.utils.data.Subset(data_loader.dataset, indices=indices_order),
+                                                    batch_size=data_loader.batch_size, shuffle=False, **kwargs)
+    
+    max_defer = math.floor(budget * len(data_loader.dataset))
+
+    for data in data_loader_new:
+        if len(data) == 2:
+            images, labels = data
+        else:
+            images, labels, _ = data
+        images, labels = images.to(device), labels.to(device)
+        batch_size = len(images)
+
+        for i in range(0, batch_size):
+            defer_running = is_rejection[:real_total].sum().item()
+            if defer_running >= max_defer:
+                r = 0
             else:
-                images, labels, _ = data
-            images, labels = images.to(device), labels.to(device)
-            batch_size = len(images)
+                r = is_rejection[real_total].item()
+            prediction = clf_predictions[real_total].item()
+            exp_prediction = exp_predictions[real_total].item()
 
-            for i in range(0, batch_size):
-                defer_running = is_rejection[:real_total].sum().item()
-                if defer_running >= max_defer:
-                    r = 0
-                else:
-                    r = is_rejection[real_total].item()
-                prediction = clf_predictions[real_total].item()
-                exp_prediction = exp_predictions[real_total].item()
-
-                clf_alone_correct += (prediction == labels[i]).item()
-                exp_alone_correct += (exp_prediction == labels[i].item())
-                if r == 0:
-                    total += 1
-                    correct += (prediction == labels[i]).item()
-                    correct_sys += (prediction == labels[i]).item()
-                if r == 1:
-                    exp += (exp_prediction == labels[i].item())
-                    correct_sys += (exp_prediction == labels[i].item())
-                    exp_total += 1
-                real_total += 1
+            clf_alone_correct += (prediction == labels[i]).item()
+            exp_alone_correct += (exp_prediction == labels[i].item())
+            if r == 0:
+                total += 1
+                correct += (prediction == labels[i]).item()
+                correct_sys += (prediction == labels[i]).item()
+            if r == 1:
+                exp += (exp_prediction == labels[i].item())
+                correct_sys += (exp_prediction == labels[i].item())
+                exp_total += 1
+            real_total += 1
 
     cov = str(total) + str("/") + str(real_total)
     metrics = {"cov": cov, "sys_acc": 100 * correct_sys / real_total,
@@ -162,7 +194,10 @@ def evaluate(model,
             to_print += f"{k} {v} "
         else:
             to_print += f"{k} {v:.6f} "
-    logger.info(to_print)
+    if logger is not None:
+        logger.info(to_print)
+    else:
+        print(to_print)
     return metrics
 
 
@@ -355,15 +390,45 @@ def train(model,
         # 	break	
 
 
-def eval(model, test_data, loss_fn, experts_test, cntx_sampler, config):
+def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, test_cntx_sampler, config):
+    '''val_data and val_cntx_sampler are only used for single-expert finetuning'''
     model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
     model = model.to(device)
     kwargs = {'num_workers': 0, 'pin_memory': True}
+    val_loader = torch.utils.data.DataLoader(val_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
+
     for budget in config["budget"]:
-        logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
-        cntx_sampler.reset()
-        evaluate(model, experts_test, loss_fn, cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
+        test_cntx_sampler.reset()
+        
+        if (config["l2d"] == 'single') and config["finetune_single"]:
+            logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_finetune.log".format(budget)))
+            val_losses = []
+            for n_finetune_steps in config["n_finetune_steps"]:
+                print(f'no. finetune steps: {n_finetune_steps}')
+                val_cntx_sampler.reset()
+                ## HACKY
+                model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
+                model = model.to(device)
+                ########
+                metrics = evaluate(model, experts_test, loss_fn, val_cntx_sampler, config["n_classes"], val_loader, config, None, budget, \
+                                n_finetune_steps, config["lr_finetune"])
+                val_losses.append(metrics['val_loss'])
+            idx = np.argmin(np.array(val_losses))
+            best_finetune_steps = config["n_finetune_steps"][idx]
+            ## HACKY
+            model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
+            model = model.to(device)
+            ########
+            metrics = evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, \
+                                best_finetune_steps, config["lr_finetune"])
+        else:
+            logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
+            evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
+
+    # logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(1.0)))
+    # evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, 1.0, 2, config["lr_finetune"])
+
 
 
 def main(config):
@@ -457,9 +522,9 @@ def main(config):
     
     if config["mode"] == 'train':
         train(model, train_data, val_data_trgt, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_val, config)
-        eval(model, test_data_trgt, loss_fn, experts_test, cntx_sampler_test, config)
+        eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config)
     else: # evaluation on test data
-        eval(model, test_data_trgt, loss_fn, experts_test, cntx_sampler_test, config)
+        eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config)
 
 
 if __name__ == "__main__":
@@ -474,20 +539,26 @@ if __name__ == "__main__":
                             help="specify the experiment name. Checkpoints will be saved with this name.")
     
     ## NEW experiment setup
-    parser.add_argument('--mode', choices=['train', 'eval'], default='train')
+    parser.add_argument('--mode', choices=['train', 'eval'], default='eval') # NOTE
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_attn_sa'], default='pop')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_attn_sa'], default='single')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
     parser.add_argument("--val_batch_size", type=int, default=8)
-    parser.add_argument("--test_batch_size", type=int, default=1)
+    parser.add_argument("--test_batch_size", type=int, default=1) # NOTE
     parser.add_argument('--warmstart', action='store_true')
     parser.set_defaults(warmstart=False)
     parser.add_argument("--warmstart_epochs", type=int, default=100)
 
     ## EVAL
-    parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.05,0.1,0.2,1.0])
+    # parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.05,0.1,0.2,1.0])
+    parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
+
+    parser.add_argument('--finetune_single', action='store_true')
+    parser.set_defaults(finetune_single=True)
+    parser.add_argument('--n_finetune_steps', nargs='+', type=int, default=[1,2,5])
+    parser.add_argument("--lr_finetune", type=float, default=1e-1)
 
     # # Hack (remove after)
     # parser.add_argument("--runs", type=str, default="runs")
