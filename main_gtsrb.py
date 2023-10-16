@@ -8,6 +8,7 @@ import time
 import json
 import functools
 import copy
+import itertools
 import numpy as np
 import torch
 import torch.nn as nn
@@ -403,25 +404,27 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
         
         if (config["l2d"] == 'single') and config["finetune_single"]:
             logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_finetune.log".format(budget)))
+            
+            steps_lr_comb = list(itertools.product(config["n_finetune_steps"], config["lr_finetune"]))
             val_losses = []
-            for n_finetune_steps in config["n_finetune_steps"]:
-                print(f'no. finetune steps: {n_finetune_steps}')
+            for (n_steps, lr) in steps_lr_comb:
+                print(f'no. finetune steps: {n_steps}  step size: {lr}')
                 val_cntx_sampler.reset()
                 ## HACKY
                 model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
                 model = model.to(device)
                 ########
                 metrics = evaluate(model, experts_test, loss_fn, val_cntx_sampler, config["n_classes"], val_loader, config, None, budget, \
-                                n_finetune_steps, config["lr_finetune"])
+                                n_steps, lr)
                 val_losses.append(metrics['val_loss'])
             idx = np.argmin(np.array(val_losses))
-            best_finetune_steps = config["n_finetune_steps"][idx]
+            best_finetune_steps, best_lr = steps_lr_comb[idx]
             ## HACKY
             model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
             model = model.to(device)
             ########
             metrics = evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, \
-                                best_finetune_steps, config["lr_finetune"])
+                                best_finetune_steps, best_lr)
         else:
             logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
             evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
@@ -540,7 +543,7 @@ if __name__ == "__main__":
     
     ## NEW experiment setup
     parser.add_argument('--mode', choices=['train', 'eval'], default='eval') # NOTE
-    parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
+    parser.add_argument("--p_out", type=float, default=0.4) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0] # NOTE
     parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_attn_sa'], default='single')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
@@ -557,8 +560,8 @@ if __name__ == "__main__":
 
     parser.add_argument('--finetune_single', action='store_true')
     parser.set_defaults(finetune_single=True)
-    parser.add_argument('--n_finetune_steps', nargs='+', type=int, default=[1,2,5])
-    parser.add_argument("--lr_finetune", type=float, default=1e-1)
+    parser.add_argument('--n_finetune_steps', nargs='+', type=int, default=[1,2,5,10])
+    parser.add_argument('--lr_finetune', nargs='+', type=float, default=[1e-1,1e-2])
 
     # # Hack (remove after)
     # parser.add_argument("--runs", type=str, default="runs")
