@@ -424,14 +424,14 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
             ########
             metrics = evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, \
                                 best_finetune_steps, best_lr)
-        # else:
-        test_cntx_sampler.reset()
-        logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
-        ## HACKY
-        model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
-        model = model.to(device)
-        ########
-        evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
+        else:
+            test_cntx_sampler.reset()
+            logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
+            ## HACKY
+            model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
+            model = model.to(device)
+            ########
+            evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
 
 
 def main(config):
@@ -565,7 +565,7 @@ if __name__ == "__main__":
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
-    parser.add_argument("--cifar", choices=["10", "20_100"], default="10")
+    parser.add_argument("--cifar", choices=["10", "20_100"], default="20_100")
     parser.add_argument("--val_batch_size", type=int, default=8) # NOTE 8
     parser.add_argument("--test_batch_size", type=int, default=8) # NOTE 1
     parser.add_argument('--warmstart', action='store_true')
@@ -579,7 +579,8 @@ if __name__ == "__main__":
     parser.add_argument('--finetune_single', action='store_true')
     parser.set_defaults(finetune_single=True)
     parser.add_argument('--n_finetune_steps', nargs='+', type=int, default=[1,2,5,10,20,50])
-    parser.add_argument('--lr_finetune', nargs='+', type=float, default=[1e-1,1e-2])
+    # parser.add_argument('--lr_finetune', nargs='+', type=float, default=[1e-1,1e-2])
+    parser.add_argument('--lr_finetune', nargs='+', type=float, default=[1e-1])
 
     # # Hack (remove after)
     # parser.add_argument("--runs", type=str, default="runs")
