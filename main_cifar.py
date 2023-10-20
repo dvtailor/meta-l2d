@@ -49,7 +49,6 @@ def evaluate(model,
     '''
     data loader : assumed to be instantiated with shuffle=False
     '''
-    model_state_dict = model.state_dict()
     correct = 0
     correct_sys = 0
     exp = 0
@@ -60,8 +59,6 @@ def evaluate(model,
     exp_alone_correct = 0
     losses = []
     is_finetune = (config["l2d"] == 'single') and (n_finetune_steps > 0)
-    # Ideally should put batchnorm in train-mode in finetune step but gave worse performance
-    # Also bit unsure about my finetuning implementation
     model.eval() # Crucial for networks with batchnorm layers!
     # with torch.no_grad():
     confidence_diff = []
@@ -88,6 +85,7 @@ def evaluate(model,
 
         if is_finetune:
             model_backup = copy.deepcopy(model)
+            model.train()
             images_cntx = expert_cntx.xc.squeeze(0)
             targets_cntx = expert_cntx.yc.squeeze(0)
             costs = (exp_preds==targets_cntx).int()
@@ -100,10 +98,7 @@ def evaluate(model,
                     for param in model.params.clf.parameters():
                         new_param = param - lr_finetune * param.grad
                         param.copy_(new_param)
-                # grad_clf = torch.autograd.grad(loss, model.params.clf.parameters())
-                # with torch.no_grad():
-                #     for param, grad in zip(model.params.clf.parameters(), grad_clf):
-                #         param.copy_(param - lr_finetune * grad)
+            model.eval()
         
         with torch.no_grad():
             if config["l2d"] == 'pop':
@@ -135,9 +130,6 @@ def evaluate(model,
 
             if is_finetune: # restore model on single-expert
                 model = model_backup
-                model.load_state_dict(model_state_dict)
-                model = model.to(device)
-                model.eval()
 
     confidence_diff = torch.cat(confidence_diff)
     indices_order = confidence_diff.argsort()
@@ -395,7 +387,7 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
     model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
     model = model.to(device)
     kwargs = {'num_workers': 0, 'pin_memory': True}
-    val_loader = torch.utils.data.DataLoader(val_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
+    val_loader = torch.utils.data.DataLoader(val_data, batch_size=config["val_batch_size"], shuffle=False, **kwargs)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
 
     for budget in config["budget"]:
@@ -409,28 +401,15 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
             for (n_steps, lr) in steps_lr_comb:
                 print(f'no. finetune steps: {n_steps}  step size: {lr}')
                 val_cntx_sampler.reset()
-                ## HACKY
-                model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
-                model = model.to(device)
-                ########
                 metrics = evaluate(model, experts_test, loss_fn, val_cntx_sampler, config["n_classes"], val_loader, config, None, budget, \
                                 n_steps, lr)
                 val_losses.append(metrics['val_loss'])
             idx = np.argmin(np.array(val_losses))
             best_finetune_steps, best_lr = steps_lr_comb[idx]
-            ## HACKY
-            model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
-            model = model.to(device)
-            ########
             metrics = evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, \
                                 best_finetune_steps, best_lr)
         else:
-            test_cntx_sampler.reset()
             logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
-            ## HACKY
-            model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
-            model = model.to(device)
-            ########
             evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
 
 
@@ -444,11 +423,13 @@ def main(config):
         config["data_aug"] = True
         config["wrn_widen_factor"] = 4
         config["n_cntx_pts"] = 100
+        config["decouple"] = True
     else:
         config["n_classes"] = 10
         config["data_aug"] = False
         config["wrn_widen_factor"] = 2
         config["n_cntx_pts"] = 50
+        config["decouple"] = False
     train_data, val_data, test_data = load_cifar(variety=config["cifar"], data_aug=config["data_aug"], seed=config["seed"])
 
     with_softmax = False
@@ -475,14 +456,13 @@ def main(config):
         wrnbase.load_state_dict(torch.load(warmstart_path, map_location=device))
         wrnbase = wrnbase.to(device)
     
-    decouple = True # NOTE
     if config["l2d"] == "pop":
         model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
                                                       with_cross_attn=with_cross_attn, with_self_attn=with_self_attn, with_softmax=with_softmax, \
-                                                      decouple=decouple)
+                                                      decouple=config["decouple"])
     else:
         model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax, \
-                                   decouple=decouple)
+                                   decouple=config["decouple"])
     
     config["n_experts"] = 10 # assume exactly divisible by 2
     experts_train = []
@@ -566,8 +546,8 @@ if __name__ == "__main__":
 
     ## NEW train args
     parser.add_argument("--cifar", choices=["10", "20_100"], default="20_100")
-    parser.add_argument("--val_batch_size", type=int, default=8) # NOTE 8
-    parser.add_argument("--test_batch_size", type=int, default=8) # NOTE 1
+    parser.add_argument("--val_batch_size", type=int, default=8)
+    parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')
     parser.set_defaults(warmstart=True)
     parser.add_argument("--warmstart_epochs", type=int, default=100)
@@ -578,8 +558,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--finetune_single', action='store_true')
     parser.set_defaults(finetune_single=True)
-    parser.add_argument('--n_finetune_steps', nargs='+', type=int, default=[1,2,5,10,20,50])
-    # parser.add_argument('--lr_finetune', nargs='+', type=float, default=[1e-1,1e-2])
+    parser.add_argument('--n_finetune_steps', nargs='+', type=int, default=[1,2,5,10,20])
     parser.add_argument('--lr_finetune', nargs='+', type=float, default=[1e-1])
 
     # # Hack (remove after)
