@@ -16,8 +16,7 @@ import torch.backends.cudnn as cudnn
 # local imports
 from lib.utils import AverageMeter, accuracy, get_logger
 from lib.wideresnet import Classifier
-# from lib.resnet import resnet20
-from lib.resnet_frn import make_resnet20_frn_fn
+from lib.resnet import resnet20
 from lib.datasets import load_gtsrb
 
 
@@ -209,11 +208,7 @@ def main(config):
 
     train_data, val_data, test_data = load_gtsrb(seed=config["seed"])
 
-    # model = Classifier(resnetbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=False)
-    # model_base = make_medmnist_cnn()
-    # n_features=128
-    # model_base = resnet20()
-    model_base = make_resnet20_frn_fn(config["n_classes"])
+    model_base = resnet20()
     n_features = model_base.n_features
     model = Classifier(model_base, num_classes=int(config["n_classes"]), n_features=n_features, with_softmax=False)
     
