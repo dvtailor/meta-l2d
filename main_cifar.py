@@ -59,6 +59,9 @@ def evaluate(model,
     exp_alone_correct = 0
     losses = []
     is_finetune = (config["l2d"] == 'single') and (n_finetune_steps > 0)
+    if is_finetune:
+        model_state_dict = copy.deepcopy(model.state_dict())
+        model_backup = copy.deepcopy(model)
     model.eval() # Crucial for networks with batchnorm layers!
     # with torch.no_grad():
     confidence_diff = []
@@ -84,7 +87,6 @@ def evaluate(model,
         expert_cntx.mc = exp_preds.unsqueeze(0)
 
         if is_finetune:
-            model_backup = copy.deepcopy(model)
             model.train()
             images_cntx = expert_cntx.xc.squeeze(0)
             targets_cntx = expert_cntx.yc.squeeze(0)
@@ -130,6 +132,8 @@ def evaluate(model,
 
             if is_finetune: # restore model on single-expert
                 model = model_backup
+                model.load_state_dict(model_state_dict)
+                model.eval()
 
     confidence_diff = torch.cat(confidence_diff)
     indices_order = confidence_diff.argsort()
@@ -558,7 +562,7 @@ if __name__ == "__main__":
     parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
 
     parser.add_argument('--finetune_single', action='store_true')
-    parser.set_defaults(finetune_single=False) # NOTE
+    parser.set_defaults(finetune_single=True)
     parser.add_argument('--n_finetune_steps', nargs='+', type=int, default=[1,2,5,10,20])
     parser.add_argument('--lr_finetune', nargs='+', type=float, default=[1e-1,1e-2])
 
