@@ -60,6 +60,9 @@ def evaluate(model,
     exp_alone_correct = 0
     losses = []
     is_finetune = (config["l2d"] == 'single') and (n_finetune_steps > 0)
+    if is_finetune:
+        model_state_dict = model.state_dict()
+        model_backup = copy.deepcopy(model)
     model.eval() # Crucial for networks with batchnorm layers!
     # with torch.no_grad():
     confidence_diff = []
@@ -85,7 +88,6 @@ def evaluate(model,
         expert_cntx.mc = exp_preds.unsqueeze(0)
 
         if is_finetune:
-            model_backup = copy.deepcopy(model)
             model.train()
             images_cntx = expert_cntx.xc.squeeze(0)
             targets_cntx = expert_cntx.yc.squeeze(0)
@@ -131,6 +133,8 @@ def evaluate(model,
 
             if is_finetune: # restore model on single-expert
                 model = model_backup
+                model.load_state_dict(copy.deepcopy(model_state_dict))
+                model.eval()
 
     confidence_diff = torch.cat(confidence_diff)
     indices_order = confidence_diff.argsort()
@@ -385,7 +389,8 @@ def train(model,
 
 def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, test_cntx_sampler, config):
     '''val_data and val_cntx_sampler are only used for single-expert finetuning'''
-    model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
+    model_state_dict = torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device)
+    model.load_state_dict(model_state_dict)
     model = model.to(device)
     kwargs = {'num_workers': 0, 'pin_memory': True}
     val_loader = torch.utils.data.DataLoader(val_data, batch_size=config["val_batch_size"], shuffle=False, **kwargs)
@@ -393,6 +398,9 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
 
     for budget in config["budget"]:
         test_cntx_sampler.reset()
+        logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
+        model.load_state_dict(copy.deepcopy(model_state_dict))
+        evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
         
         if (config["l2d"] == 'single') and config["finetune_single"]:
             logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_finetune.log".format(budget)))
@@ -402,20 +410,16 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
             for (n_steps, lr) in steps_lr_comb:
                 print(f'no. finetune steps: {n_steps}  step size: {lr}')
                 val_cntx_sampler.reset()
+                model.load_state_dict(copy.deepcopy(model_state_dict))
                 metrics = evaluate(model, experts_test, loss_fn, val_cntx_sampler, config["n_classes"], val_loader, config, None, budget, \
                                 n_steps, lr)
                 val_losses.append(metrics['val_loss'])
             idx = np.argmin(np.array(val_losses))
             best_finetune_steps, best_lr = steps_lr_comb[idx]
+            test_cntx_sampler.reset()
+            model.load_state_dict(copy.deepcopy(model_state_dict))
             metrics = evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, \
                                 best_finetune_steps, best_lr)
-        else:
-            logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
-            evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
-
-    # logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(1.0)))
-    # evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, 1.0, 2, config["lr_finetune"])
-
 
 
 def main(config):
@@ -523,8 +527,8 @@ if __name__ == "__main__":
                             help="specify the experiment name. Checkpoints will be saved with this name.")
     
     ## NEW experiment setup
-    parser.add_argument('--mode', choices=['train', 'eval'], default='eval') # NOTE
-    parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0] # NOTE
+    parser.add_argument('--mode', choices=['train', 'eval'], default='eval')
+    parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_attn_sa'], default='single')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 

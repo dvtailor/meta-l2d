@@ -60,7 +60,7 @@ def evaluate(model,
     losses = []
     is_finetune = (config["l2d"] == 'single') and (n_finetune_steps > 0)
     if is_finetune:
-        model_state_dict = model.state_dict() #copy.deepcopy(model.state_dict())
+        model_state_dict = model.state_dict()
         model_backup = copy.deepcopy(model)
     model.eval() # Crucial for networks with batchnorm layers!
     # with torch.no_grad():
@@ -553,7 +553,7 @@ if __name__ == "__main__":
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
-    parser.add_argument("--cifar", choices=["10", "20_100"], default="10")
+    parser.add_argument("--cifar", choices=["10", "20_100"], default="20_100")
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')
