@@ -561,11 +561,11 @@ if __name__ == "__main__":
     parser.add_argument("--warmstart_epochs", type=int, default=100)
 
     ## EVAL
-    parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5]) # 1.0
+    parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5,1.0])
     # parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
 
     parser.add_argument('--finetune_single', action='store_true')
-    parser.set_defaults(finetune_single=True)
+    parser.set_defaults(finetune_single=False) # NOTE
     parser.add_argument('--n_finetune_steps', nargs='+', type=int, default=[1,2,5,10,20])
     parser.add_argument('--lr_finetune', nargs='+', type=float, default=[1e-1,1e-2])
 
