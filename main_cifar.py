@@ -396,10 +396,11 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
 
     for budget in config["budget"]:
-        test_cntx_sampler.reset()
-        logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
-        model.load_state_dict(copy.deepcopy(model_state_dict))
-        evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
+        # NOTE: revert this back after
+        # test_cntx_sampler.reset()
+        # logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
+        # model.load_state_dict(copy.deepcopy(model_state_dict))
+        # evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
         
         if (config["l2d"] == 'single') and config["finetune_single"]:
             logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_finetune.log".format(budget)))
@@ -561,11 +562,11 @@ if __name__ == "__main__":
     parser.add_argument("--warmstart_epochs", type=int, default=100)
 
     ## EVAL
-    parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5,1.0])
+    parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5]) # 1.0
     # parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
 
     parser.add_argument('--finetune_single', action='store_true')
-    parser.set_defaults(finetune_single=False) # NOTE
+    parser.set_defaults(finetune_single=True)
     parser.add_argument('--n_finetune_steps', nargs='+', type=int, default=[1,2,5,10,20])
     parser.add_argument('--lr_finetune', nargs='+', type=float, default=[1e-1,1e-2])
 
