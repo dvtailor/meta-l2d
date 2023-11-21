@@ -439,6 +439,7 @@ def main(config):
     else: # ova
         loss_fn = ova
 
+    # NOTE: logic here changed in main_cifar.py but unchanged here since don't run attention on gtsrb
     with_cross_attn=False
     with_self_attn=False
     if len(config["l2d"].split("_")) > 2: # pop_attn_sa

@@ -448,12 +448,14 @@ def main(config):
     else: # ova
         loss_fn = ova
 
-    with_cross_attn=False
-    with_self_attn=False
-    if len(config["l2d"].split("_")) > 2: # pop_attn_sa
-        with_self_attn=True
-    if len(config["l2d"].split("_")) > 1: # pop_attn
-        with_cross_attn=True
+    with_attn=False
+    with_tnp=False
+    config_tokens = config["l2d"].split("_")
+    if len(config_tokens) > 1:
+        if config_tokens[1] == 'attn':
+            with_attn = True
+        elif config_tokens[1] == 'tnp':
+            with_tnp = True
         config["l2d"] = "pop"
 
     wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=config["wrn_widen_factor"], dropRate=0.0)
@@ -467,8 +469,12 @@ def main(config):
     
     if config["l2d"] == "pop":
         model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
-                                                      with_cross_attn=with_cross_attn, with_self_attn=with_self_attn, with_softmax=with_softmax, \
+                                                      with_attn=with_attn, with_softmax=with_softmax, \
                                                       decouple=config["decouple"])
+        
+        if with_tnp:
+            pass
+            # TODO: instantiate fully separate model (extensive mods from regular context embedder unlike existing attention)
     else:
         model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax, \
                                    decouple=config["decouple"])
@@ -547,10 +553,10 @@ if __name__ == "__main__":
                             help="specify the experiment name. Checkpoints will be saved with this name.")
     
     ## NEW experiment setup
-    parser.add_argument('--mode', choices=['train', 'eval'], default='eval')
+    parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_attn_sa'], default='single')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_tnp'], default='pop_attn')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args

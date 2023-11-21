@@ -175,10 +175,10 @@ class Identity(nn.Module):
 
 class ClassifierRejectorWithContextEmbedder(nn.Module):
     def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=6, depth_rej=4, dim_class_embed=128,
-                 with_cross_attn=False, with_self_attn=False, with_softmax=True, decouple=False):
+                 with_attn=False, with_softmax=True, decouple=False):
         super(ClassifierRejectorWithContextEmbedder, self).__init__()
         self.num_classes = num_classes
-        self.with_cross_attn = with_cross_attn
+        self.with_attn = with_attn
         self.with_softmax = with_softmax
         self.decouple = decouple
 
@@ -197,7 +197,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.rejector[-1].bias.data.zero_()
         self.embed_class = nn.Embedding(num_classes, dim_class_embed)
         
-        if not with_self_attn:
+        if not with_attn:
             self.embed = build_mlp(n_features+dim_class_embed*2, dim_hid, dim_hid, depth_embed)
         else:
             self.embed = nn.Sequential(
@@ -208,7 +208,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         # self.embed_post = build_mlp_fixup(dim_hid, dim_hid, dim_hid, 2)
         rej_mdl_lst = [self.rejector, self.embed_class, self.embed] #self.embed_post
 
-        if with_cross_attn:
+        if with_attn:
             self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
             rej_mdl_lst += [self.attn]
         
@@ -262,7 +262,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
 
         out = self.embed(out) # [E,Nc,H]
 
-        if not self.with_cross_attn:
+        if not self.with_attn:
             embedding = out.mean(-2) # [E,H]
             # embedding = self.embed_post(embedding) # [E,H]
             embedding = embedding.unsqueeze(1).repeat(1,batch_size,1) # [E,B,H]
