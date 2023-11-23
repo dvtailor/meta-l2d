@@ -19,7 +19,7 @@ import torch.backends.cudnn as cudnn
 from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
 from lib.experts import SyntheticExpertOverlap, Cifar20SyntheticExpert
-from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase
+from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase, ClassifierRejectorWithContextEmbedderTransformer
 from lib.datasets import load_cifar, ContextSampler
 
 
@@ -397,29 +397,29 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
 
     for budget in config["budget"]:
         # NOTE: revert this back after
-        # test_cntx_sampler.reset()
-        # logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
-        # model.load_state_dict(copy.deepcopy(model_state_dict))
-        # evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
+        test_cntx_sampler.reset()
+        logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
+        model.load_state_dict(copy.deepcopy(model_state_dict))
+        evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
         
-        if (config["l2d"] == 'single') and config["finetune_single"]:
-            logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_finetune.log".format(budget)))
+        # if (config["l2d"] == 'single') and config["finetune_single"]:
+        #     logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_finetune.log".format(budget)))
             
-            steps_lr_comb = list(itertools.product(config["n_finetune_steps"], config["lr_finetune"]))
-            val_losses = []
-            for (n_steps, lr) in steps_lr_comb:
-                print(f'no. finetune steps: {n_steps}  step size: {lr}')
-                val_cntx_sampler.reset()
-                model.load_state_dict(copy.deepcopy(model_state_dict))
-                metrics = evaluate(model, experts_test, loss_fn, val_cntx_sampler, config["n_classes"], val_loader, config, None, budget, \
-                                n_steps, lr)
-                val_losses.append(metrics['val_loss'])
-            idx = np.argmin(np.array(val_losses))
-            best_finetune_steps, best_lr = steps_lr_comb[idx]
-            test_cntx_sampler.reset()
-            model.load_state_dict(copy.deepcopy(model_state_dict))
-            metrics = evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, \
-                                best_finetune_steps, best_lr)
+        #     steps_lr_comb = list(itertools.product(config["n_finetune_steps"], config["lr_finetune"]))
+        #     val_losses = []
+        #     for (n_steps, lr) in steps_lr_comb:
+        #         print(f'no. finetune steps: {n_steps}  step size: {lr}')
+        #         val_cntx_sampler.reset()
+        #         model.load_state_dict(copy.deepcopy(model_state_dict))
+        #         metrics = evaluate(model, experts_test, loss_fn, val_cntx_sampler, config["n_classes"], val_loader, config, None, budget, \
+        #                         n_steps, lr)
+        #         val_losses.append(metrics['val_loss'])
+        #     idx = np.argmin(np.array(val_losses))
+        #     best_finetune_steps, best_lr = steps_lr_comb[idx]
+        #     test_cntx_sampler.reset()
+        #     model.load_state_dict(copy.deepcopy(model_state_dict))
+        #     metrics = evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, \
+        #                         best_finetune_steps, best_lr)
 
 
 def main(config):
@@ -471,10 +471,9 @@ def main(config):
         model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
                                                       with_attn=with_attn, with_softmax=with_softmax, \
                                                       decouple=config["decouple"])
-        
         if with_tnp:
-            pass
-            # TODO: instantiate fully separate model (extensive mods from regular context embedder unlike existing attention)
+            model = ClassifierRejectorWithContextEmbedderTransformer(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
+                                                             with_softmax=with_softmax, decouple=config["decouple"])
     else:
         model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax, \
                                    decouple=config["decouple"])
@@ -556,7 +555,7 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_tnp'], default='pop_attn')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_tnp'], default='pop_tnp')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
@@ -568,8 +567,8 @@ if __name__ == "__main__":
     parser.add_argument("--warmstart_epochs", type=int, default=100)
 
     ## EVAL
-    parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5]) # 1.0
-    # parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
+    # parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5]) # 1.0
+    parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
 
     parser.add_argument('--finetune_single', action='store_true')
     parser.set_defaults(finetune_single=True)
