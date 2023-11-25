@@ -210,8 +210,12 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         rej_mdl_lst = [self.rejector, self.embed_class, self.embed] #self.embed_post
 
         if with_attn:
-            self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
+            # self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
+            self.attn = MultiHeadAttn(dim_hid, dim_hid, dim_hid, dim_hid)
             rej_mdl_lst += [self.attn]
+            depth_qk = 3 # NOTE: should move to constructor
+            self.embed_qk = build_mlp(n_features, dim_hid, dim_hid, depth_qk)
+            rej_mdl_lst += [self.embed_qk]
         
         self.params = nn.ModuleDict({
             'base': nn.ModuleList(base_mdl_lst),
@@ -271,8 +275,13 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
             xt_embed = self.base_model_rej(xt) # [B,Dx]
             if not self.decouple:
                 xt_embed = xt_embed.detach() # stop gradients flowing
-            xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
-            embedding = self.attn(xt_embed, xc_embed, out) # [E,B,H]
+            # xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
+
+            key = self.embed_qk(xc_embed) # [E,Nc,H]
+            query = self.embed_qk(xt_embed) # [B,H]
+            query = query.unsqueeze(0).repeat(n_experts,1,1) # [E,B,H]
+
+            embedding = self.attn(query, key, out) # [E,B,H]
         
         return embedding
 
