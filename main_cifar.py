@@ -555,7 +555,7 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_tnp'], default='pop_attn')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_tnp'], default='pop_tnp')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args

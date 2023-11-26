@@ -194,10 +194,10 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.fc = nn.Linear(n_features, num_classes)
         self.fc.bias.data.zero_()
 
+        self.embed_class = nn.Embedding(num_classes, dim_class_embed)
         self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
         self.rejector[-1].bias.data.zero_()
-        self.embed_class = nn.Embedding(num_classes, dim_class_embed)
-        
+
         if not with_attn:
             self.embed = build_mlp(n_features+dim_class_embed*2, dim_hid, dim_hid, depth_embed)
         else:
@@ -206,16 +206,13 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
                 nn.ReLU(True),
                 SelfAttn(dim_hid, dim_hid)
             )
+        
         # self.embed_post = build_mlp_fixup(dim_hid, dim_hid, dim_hid, 2)
         rej_mdl_lst = [self.rejector, self.embed_class, self.embed] #self.embed_post
 
         if with_attn:
-            # self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
-            self.attn = MultiHeadAttn(dim_hid, dim_hid, dim_hid, dim_hid)
+            self.attn = MultiHeadAttn(n_features, n_features, dim_hid, dim_hid)
             rej_mdl_lst += [self.attn]
-            depth_qk = 3 # NOTE: should move to constructor
-            self.embed_qk = build_mlp(n_features, dim_hid, dim_hid, depth_qk)
-            rej_mdl_lst += [self.embed_qk]
         
         self.params = nn.ModuleDict({
             'base': nn.ModuleList(base_mdl_lst),
@@ -275,13 +272,8 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
             xt_embed = self.base_model_rej(xt) # [B,Dx]
             if not self.decouple:
                 xt_embed = xt_embed.detach() # stop gradients flowing
-            # xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
-
-            key = self.embed_qk(xc_embed) # [E,Nc,H]
-            query = self.embed_qk(xt_embed) # [B,H]
-            query = query.unsqueeze(0).repeat(n_experts,1,1) # [E,B,H]
-
-            embedding = self.attn(query, key, out) # [E,B,H]
+            xt_embed = xt_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
+            embedding = self.attn(xt_embed, xc_embed, out) # [E,B,H]
         
         return embedding
 
@@ -399,8 +391,8 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
 # MLP embedder uses dim_hid
 # rejector depth shallower (2) compared to before (same as TNP)
 class ClassifierRejectorWithContextEmbedderTransformer(nn.Module):
-    def __init__(self, base_model, num_classes, n_features, dim_hid=64, depth_embed=4, depth_rej=2, dim_class_embed=128,
-                 with_softmax=True, decouple=False, dim_feedforward=128):
+    def __init__(self, base_model, num_classes, n_features, dim_hid=128, depth_embed=4, depth_rej=2, dim_class_embed=128, # dim_hid=128
+                 with_softmax=True, decouple=False, dim_feedforward=512):
         super(ClassifierRejectorWithContextEmbedderTransformer, self).__init__()
         self.num_classes = num_classes
         self.with_softmax = with_softmax
@@ -429,8 +421,10 @@ class ClassifierRejectorWithContextEmbedderTransformer(nn.Module):
 
         rej_mdl_lst = [self.rejector, self.embed_class, self.embed]
 
-        layers_transformer = 6
-        encoder_layer = nn.TransformerEncoderLayer(dim_hid, nhead=4, dim_feedforward=dim_feedforward, dropout=0, batch_first=True)
+        layers_transformer = 2
+        dropout = 0 #0.1
+        encoder_layer = nn.TransformerEncoderLayer(dim_hid, nhead=4, dim_feedforward=dim_feedforward, dropout=dropout, batch_first=True, \
+                                                   activation='relu', norm_first=False)
         self.encoder = nn.TransformerEncoder(encoder_layer, layers_transformer)
         rej_mdl_lst += [self.encoder]
         
@@ -473,8 +467,9 @@ class ClassifierRejectorWithContextEmbedderTransformer(nn.Module):
 
         cntxt_xc = cntxt.xc.view((-1,) + cntxt.xc.shape[-3:]) # [E*Nc,3,32,32]
         xc_embed = self.base_model_rej(cntxt_xc) # [E*Nc,Dx]
-        if not self.decouple:
-            xc_embed = xc_embed.detach()
+        # if not self.decouple: # NOTE: stopgrad; effectively frozen feature extractor since unused in rejector
+        xc_embed = xc_embed.detach()
+        ####
         xc_embed = xc_embed.view(cntxt.xc.shape[:2] + (xc_embed.shape[-1],)) # [E,Nc,Dx]
 
         yc_embed = self.embed_class(cntxt.yc) # [E,Nc,H]
@@ -482,8 +477,9 @@ class ClassifierRejectorWithContextEmbedderTransformer(nn.Module):
         embedding_cntx = torch.cat([xc_embed,yc_embed,mc_embed], -1) # [E,Nc,Dx+2H]
 
         xt_embed = self.base_model_rej(xt) # [B,Dx]
-        if not self.decouple:
-            xt_embed = xt_embed.detach() # stop gradients flowing
+        # if not self.decouple: # NOTE
+        xt_embed = xt_embed.detach() # stop gradients flowing
+        #####
         embedding_trgt = torch.cat([
                             xt_embed,
                             torch.zeros((batch_size,self.dim_class_embed)).to(xt_embed.device),
