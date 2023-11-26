@@ -421,8 +421,8 @@ class ClassifierRejectorWithContextEmbedderTransformer(nn.Module):
 
         rej_mdl_lst = [self.rejector, self.embed_class, self.embed]
 
-        layers_transformer = 2
-        dropout = 0 #0.1
+        layers_transformer = 4 #2
+        dropout = 0.1 #0
         encoder_layer = nn.TransformerEncoderLayer(dim_hid, nhead=4, dim_feedforward=dim_feedforward, dropout=dropout, batch_first=True, \
                                                    activation='relu', norm_first=False)
         self.encoder = nn.TransformerEncoder(encoder_layer, layers_transformer)

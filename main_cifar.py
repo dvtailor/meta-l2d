@@ -425,7 +425,7 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}_new/p{str(config['p_out'])}_seed{str(config['seed'])}" # TODO
     os.makedirs(config["ckp_dir"], exist_ok=True)
     if config["cifar"] == '20_100':
         config["n_classes"] = 20
