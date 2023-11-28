@@ -19,7 +19,7 @@ import torch.backends.cudnn as cudnn
 from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
 from lib.experts import SyntheticExpertOverlap, Cifar20SyntheticExpert
-from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase, ClassifierRejectorWithContextEmbedderTransformer
+from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase#, ClassifierRejectorWithContextEmbedderTransformer
 from lib.datasets import load_cifar, ContextSampler
 
 
@@ -471,9 +471,9 @@ def main(config):
         model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
                                                       with_attn=with_attn, with_softmax=with_softmax, \
                                                       decouple=config["decouple"])
-        if with_tnp:
-            model = ClassifierRejectorWithContextEmbedderTransformer(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
-                                                             with_softmax=with_softmax, decouple=config["decouple"])
+        # if with_tnp:
+        #     model = ClassifierRejectorWithContextEmbedderTransformer(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
+        #                                                      with_softmax=with_softmax, decouple=config["decouple"])
     else:
         model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax, \
                                    decouple=config["decouple"])
@@ -555,7 +555,7 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn', 'pop_tnp'], default='pop_attn')
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop_attn') # 'pop_tnp'
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
