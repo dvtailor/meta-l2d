@@ -194,20 +194,20 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.fc = nn.Linear(n_features, num_classes)
         self.fc.bias.data.zero_()
 
-        self.embed_class = nn.Embedding(num_classes, dim_class_embed)
-        # self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
-        self.rejector = build_mlp(dim_hid, dim_hid, 1, depth_rej) # TODO
-        self.rejector[-1].bias.data.zero_()
+        self.embed_class = nn.Embedding(num_classes, dim_class_embed)    
 
-        if not with_attn:
+        if not self.with_attn:
+            self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
             self.embed = build_mlp(n_features+dim_class_embed*2, dim_hid, dim_hid, depth_embed)
         else:
+            self.rejector = build_mlp(dim_hid, dim_hid, 1, depth_rej) # NOTE: not need test feature
             self.embed = nn.Sequential(
                 build_mlp(n_features+dim_class_embed*2, dim_hid, dim_hid, depth_embed-2),
                 nn.ReLU(True),
                 SelfAttn(dim_hid, dim_hid)
             )
         
+        self.rejector[-1].bias.data.zero_()
         # self.embed_post = build_mlp_fixup(dim_hid, dim_hid, dim_hid, 2)
         rej_mdl_lst = [self.rejector, self.embed_class, self.embed] #self.embed_post
 
@@ -237,10 +237,12 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         logits_clf = logits_clf.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K]
 
         embedding = self.encode(cntxt, x) # [E,B,H]
-        # x_embed = self.base_model_rej(x) # [B,Dx]
-        # x_embed = x_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
-        # packed = torch.cat([x_embed,embedding], -1) # [E,B,Dx+H]
-        packed = embedding # TODO
+        if not self.with_attn:
+            x_embed = self.base_model_rej(x) # [B,Dx]
+            x_embed = x_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
+            packed = torch.cat([x_embed,embedding], -1) # [E,B,Dx+H]
+        else:
+            packed = embedding
         logit_rej = self.rejector(packed) # [E,B,1]
         
         out = torch.cat([logits_clf,logit_rej], -1) # [E,B,K+1]
