@@ -81,16 +81,16 @@ class Cifar20SyntheticExpert():
                     if coin_flip == 1:
                         outs[i] = labels[i].item()
                     if coin_flip == 0:
-                        # outs[i] = random.randint(0, self.n_classes-1)
-                        outs[i] = random.choice(list(set(range(self.n_classes)) - set(self.classes_coarse)))
+                        outs[i] = random.randint(0, self.n_classes-1)
+                        # outs[i] = random.choice(list(set(range(self.n_classes)) - set(self.classes_coarse)))
                 else:
                     coin_flip = np.random.binomial(1, self.p_out)
                     if coin_flip == 1:
                         outs[i] = labels[i].item()
                     if coin_flip == 0:
-                        # outs[i] = random.randint(0, self.n_classes-1)
-                        outs[i] = random.choice(list(set(range(self.n_classes)) - set(self.classes_coarse)))
+                        outs[i] = random.randint(0, self.n_classes-1)
+                        # outs[i] = random.choice(list(set(range(self.n_classes)) - set(self.classes_coarse)))
             else: # predict randomly if not in superclasses, OR should this be anti-oracle (exclude true class) ?
-                # outs[i] = random.randint(0, self.n_classes-1)
-                outs[i] = random.choice(list(set(range(self.n_classes)) - set(self.classes_coarse)))
+                outs[i] = random.randint(0, self.n_classes-1)
+                # outs[i] = random.choice(list(set(range(self.n_classes)) - set(self.classes_coarse)))
         return outs

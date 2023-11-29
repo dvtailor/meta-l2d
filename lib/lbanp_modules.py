@@ -1,3 +1,5 @@
+# NOTE: library code for EQTNP (currently commented out in wideresnet.py)
+# - https://github.com/BorealisAI/latent-bottlenecked-anp
 # Copyright (c) 2023-present, Royal Bank of Canada.
 # Copyright (c) 2022, Tung Nguyen
 # Copyright (c) 2021, Phil Wang

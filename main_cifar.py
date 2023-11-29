@@ -425,7 +425,7 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}_new/p{str(config['p_out'])}_seed{str(config['seed'])}" # TODO
+    config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
     if config["cifar"] == '20_100':
         config["n_classes"] = 20
@@ -482,8 +482,8 @@ def main(config):
     experts_train = []
     experts_test = []
     if config["cifar"] == '20_100':
-        n_oracle_superclass = 5 #4
-        n_oracle_subclass = 2 #3 # 3 or 4 here. Affects gap between {single,pop,pop_attn} # TODO
+        n_oracle_superclass = 4
+        n_oracle_subclass = 3 # 3 or 4 here. Affects gap between {single,pop,pop_attn}
         for _ in range(config["n_experts"]): # n_experts
             # this specifies "superset" of subclasses expert is oracle at
             classes_coarse = np.random.choice(np.arange(config["n_classes"]), size=n_oracle_superclass, replace=False)
