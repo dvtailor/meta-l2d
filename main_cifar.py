@@ -104,7 +104,8 @@ def evaluate(model,
         
         with torch.no_grad():
             if config["l2d"] == 'pop':
-                outputs = model(images, expert_cntx).squeeze(0)
+                outputs = model(images, expert_cntx).squeeze(0) # TODO
+                # outputs = model(images).squeeze(0)
             else:
                 outputs = model(images)
 
@@ -540,7 +541,7 @@ def main(config):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", type=int, default=3918)
+    parser.add_argument("--seed", type=int, default=1071)
     parser.add_argument("--train_batch_size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=200)
     # parser.add_argument("--patience", type=int, default=50, 
@@ -552,16 +553,16 @@ if __name__ == "__main__":
                             help="specify the experiment name. Checkpoints will be saved with this name.")
     
     ## NEW experiment setup
-    parser.add_argument('--mode', choices=['train', 'eval'], default='train')
+    parser.add_argument('--mode', choices=['train', 'eval'], default='train') # TODO
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop_attn') # 'pop_tnp'
+    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
-    parser.add_argument("--cifar", choices=["10", "20_100"], default="20_100")
+    parser.add_argument("--cifar", choices=["10", "20_100"], default="10")
     parser.add_argument("--val_batch_size", type=int, default=8)
-    parser.add_argument("--test_batch_size", type=int, default=1)
+    parser.add_argument("--test_batch_size", type=int, default=1) # TODO
     parser.add_argument('--warmstart', action='store_true')
     parser.set_defaults(warmstart=True)
     parser.add_argument("--warmstart_epochs", type=int, default=100)

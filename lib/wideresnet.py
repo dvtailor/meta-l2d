@@ -182,6 +182,9 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.with_attn = with_attn
         self.with_softmax = with_softmax
         self.decouple = decouple
+        self.dim_hid = dim_hid
+        self.n_features = n_features
+        self.bn = nn.BatchNorm1d(n_features+dim_hid)
 
         self.base_model = base_model
         base_mdl_lst = [self.base_model]
@@ -220,7 +223,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
             'rej': nn.ModuleList(rej_mdl_lst)
         })
 
-    def forward(self, x, cntxt):
+    def forward(self, x, cntxt=None):
         '''
         Args:
             x : tensor [B,3,32,32]
@@ -229,16 +232,30 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
                 yc : tensor [E,Nc]
                 mc : tensor [E,Nc]
         '''
-        n_experts = cntxt.xc.shape[0]
+        if cntxt is None:
+            n_experts = 1
+        else:
+            n_experts = cntxt.xc.shape[0]
         
         x_embed = self.base_model(x) # [B,Dx]
         logits_clf = self.fc(x_embed) # [B,K]
         logits_clf = logits_clf.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K]
 
-        embedding = self.encode(cntxt, x) # [E,B,H]
+        if cntxt is None:
+            embedding = torch.zeros((n_experts, x.shape[0], self.dim_hid), device=x_embed.device)
+        else:
+            embedding = self.encode(cntxt, x) # [E,B,H]
+        
         x_embed = self.base_model_rej(x) # [B,Dx]
         x_embed = x_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
+
+        # if cntxt is None: # upweight x_embed due to "masked" zero-embedding
+        #     x_embed *= (self.dim_hid+self.n_features)/self.dim_hid
+
         packed = torch.cat([x_embed,embedding], -1) # [E,B,Dx+H]
+        packed = packed.view((-1,self.n_features+self.dim_hid))
+        packed = self.bn(packed) # TODO
+        packed = packed.view(x_embed.shape[:2] + (self.n_features+self.dim_hid,))
         logit_rej = self.rejector(packed) # [E,B,1]
         
         out = torch.cat([logits_clf,logit_rej], -1) # [E,B,K+1]
