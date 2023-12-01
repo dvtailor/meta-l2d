@@ -184,7 +184,6 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.decouple = decouple
         self.dim_hid = dim_hid
         self.n_features = n_features
-        self.bn = nn.BatchNorm1d(n_features+dim_hid)
 
         self.base_model = base_model
         base_mdl_lst = [self.base_model]
@@ -249,13 +248,8 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         x_embed = self.base_model_rej(x) # [B,Dx]
         x_embed = x_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
 
-        # if cntxt is None: # upweight x_embed due to "masked" zero-embedding
-        #     x_embed *= (self.dim_hid+self.n_features)/self.dim_hid
-
         packed = torch.cat([x_embed,embedding], -1) # [E,B,Dx+H]
-        packed = packed.view((-1,self.n_features+self.dim_hid))
-        packed = self.bn(packed) # TODO
-        packed = packed.view(x_embed.shape[:2] + (self.n_features+self.dim_hid,))
+        
         logit_rej = self.rejector(packed) # [E,B,1]
         
         out = torch.cat([logits_clf,logit_rej], -1) # [E,B,K+1]
