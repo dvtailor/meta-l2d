@@ -44,6 +44,7 @@ def evaluate(model,
             config,
             logger=None,
             budget=1.0,
+            p_cntx_inclusion=1.0,
             n_finetune_steps=0,
             lr_finetune=1e-1):
     '''
@@ -103,9 +104,13 @@ def evaluate(model,
             model.eval()
         
         with torch.no_grad():
+            # removes expert context based on coin flip
+            coin_flip = np.random.binomial(1, p_cntx_inclusion)
+            if coin_flip == 0:
+                expert_cntx = None
+
             if config["l2d"] == 'pop':
-                outputs = model(images, expert_cntx).squeeze(0) # TODO
-                # outputs = model(images).squeeze(0)
+                outputs = model(images, expert_cntx).squeeze(0)
             else:
                 outputs = model(images)
 
@@ -396,6 +401,14 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
     val_loader = torch.utils.data.DataLoader(val_data, batch_size=config["val_batch_size"], shuffle=False, **kwargs)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
 
+    # # Only for l2d=pop
+    # for budget in config["budget"]:
+    #     for p_cntx_inclusion in config["p_cntx_inclusion"]:
+    #         test_cntx_sampler.reset()
+    #         logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_pc{}.log".format(budget,p_cntx_inclusion)))
+    #         model.load_state_dict(copy.deepcopy(model_state_dict))
+    #         evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, p_cntx_inclusion)
+
     for budget in config["budget"]:
         # NOTE: revert this back after
         test_cntx_sampler.reset()
@@ -553,7 +566,7 @@ if __name__ == "__main__":
                             help="specify the experiment name. Checkpoints will be saved with this name.")
     
     ## NEW experiment setup
-    parser.add_argument('--mode', choices=['train', 'eval'], default='train') # TODO
+    parser.add_argument('--mode', choices=['train', 'eval'], default='eval')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
     parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
@@ -562,7 +575,7 @@ if __name__ == "__main__":
     ## NEW train args
     parser.add_argument("--cifar", choices=["10", "20_100"], default="10")
     parser.add_argument("--val_batch_size", type=int, default=8)
-    parser.add_argument("--test_batch_size", type=int, default=1) # TODO
+    parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')
     parser.set_defaults(warmstart=True)
     parser.add_argument("--warmstart_epochs", type=int, default=100)
@@ -570,6 +583,7 @@ if __name__ == "__main__":
     ## EVAL
     # parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5]) # 1.0
     parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
+    # parser.add_argument('--p_cntx_inclusion', nargs='+', type=float, default=[0.,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]) # 1.0 # NB: rebuttal
 
     parser.add_argument('--finetune_single', action='store_true')
     parser.set_defaults(finetune_single=True)
