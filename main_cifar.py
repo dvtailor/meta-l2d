@@ -19,7 +19,7 @@ import torch.backends.cudnn as cudnn
 from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
 from lib.experts import SyntheticExpertOverlap, Cifar20SyntheticExpert
-from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase#, ClassifierRejectorWithContextEmbedderTransformer
+from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase
 from lib.datasets import load_cifar, ContextSampler
 
 
@@ -59,11 +59,13 @@ def evaluate(model,
     clf_alone_correct = 0
     exp_alone_correct = 0
     losses = []
-    is_finetune = (config["l2d"] == 'single') and (n_finetune_steps > 0)
+    model.eval() # Crucial for networks with batchnorm layers!
+    if config["l2d"] == 'single_maml':
+        model.train()
+    is_finetune = ((config["l2d"] == 'single') or (config["l2d"] == 'single_maml')) and (n_finetune_steps > 0)
     if is_finetune:
         model_state_dict = model.state_dict()
         model_backup = copy.deepcopy(model)
-    model.eval() # Crucial for networks with batchnorm layers!
     # with torch.no_grad():
     confidence_diff = []
     is_rejection = []
@@ -92,6 +94,7 @@ def evaluate(model,
             images_cntx = expert_cntx.xc.squeeze(0)
             targets_cntx = expert_cntx.yc.squeeze(0)
             costs = (exp_preds==targets_cntx).int()
+            # NB: could freeze base network like finetuning in train_epoch()
             for _ in range(n_finetune_steps):
                 outputs_cntx = model(images_cntx)
                 loss = loss_fn(outputs_cntx, costs, targets_cntx, n_classes)
@@ -101,7 +104,8 @@ def evaluate(model,
                     for param in model.params.clf.parameters():
                         new_param = param - lr_finetune * param.grad
                         param.copy_(new_param)
-            model.eval()
+            if config["l2d"] == 'single': # finetuning on single-expert, use running batch statistics for eval
+                model.eval()
         
         with torch.no_grad():
             # removes expert context based on coin flip
@@ -139,7 +143,10 @@ def evaluate(model,
             if is_finetune: # restore model on single-expert
                 model = model_backup
                 model.load_state_dict(copy.deepcopy(model_state_dict))
-                model.eval()
+                if config["l2d"] == 'single':
+                    model.eval()
+                else:
+                    model.train()
 
     confidence_diff = torch.cat(confidence_diff)
     indices_order = confidence_diff.argsort()
@@ -214,7 +221,9 @@ def train_epoch(iters,
                 cntx_sampler,
                 n_classes,
                 config,
-                logger):
+                logger,
+                n_steps_maml=5,
+                lr_maml=1e-1):
     """ Train for one epoch """
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -235,7 +244,14 @@ def train_epoch(iters,
             input, target, target_sparse = input.to(device), target.to(device), target_sparse.to(device)
         n_experts = len(experts_train)
 
-        if config["l2d"] == 'pop':
+        # For MAML: need to do backprop once at start to initialize grads
+        if (i==0) and (config["l2d"] == 'single_maml'):
+            outputs = model(input)
+            loss = loss_fn(outputs, torch.zeros_like(target, device=target.device), target, n_classes) # loss per expert
+            loss.backward()
+            model.zero_grad()
+        
+        if (config["l2d"] == 'pop') or (config["l2d"] == 'single_maml'):
             expert_cntx = cntx_sampler.sample(n_experts=n_experts)
 
             # sample expert predictions for context
@@ -246,31 +262,88 @@ def train_epoch(iters,
                 exp_preds_cntx.append(preds.unsqueeze(0))
             expert_cntx.mc = torch.vstack(exp_preds_cntx)
 
+        if config["l2d"] == 'pop':
             outputs = model(input,expert_cntx) # [E,B,K+1]
-        else:
+        elif config["l2d"] == 'single':
             outputs = model(input) # [B,K+1]
             outputs = outputs.unsqueeze(0).repeat(n_experts,1,1) # [E,B,K+1]
-        
-        loss = 0
-        for idx_exp, expert in enumerate(experts_train):
-            m = torch.tensor(expert(input, target, target_sparse), device=device)
-            costs = (m==target).int()
-            loss += loss_fn(outputs[idx_exp], costs, target, n_classes) # loss per expert
-        loss /= len(experts_train)
-        epoch_train_loss.append(loss.item())
 
-        # measure accuracy and record loss
-        prec1 = accuracy(outputs.data[0,:,:n_classes], target, topk=(1,))[0] # just measures clf accuracy
-        losses.update(loss.data.item(), input.size(0))
-        top1.update(prec1.item(), input.size(0))
+        if config["l2d"] == 'single_maml':
+            for optimizer in optimizer_lst:
+                optimizer.zero_grad()
 
-        # compute gradient and do SGD step
-        for optimizer in optimizer_lst:
-            optimizer.zero_grad()
-        loss.backward()
-        for optimizer, scheduler in zip(optimizer_lst,scheduler_lst):
-            optimizer.step()
-            scheduler.step()
+            loss_cum = 0
+            for idx_exp, expert in enumerate(experts_train): 
+                local_model = copy.deepcopy(model)
+                local_model.train()
+
+                # freeze base network in finetuning
+                for param in local_model.params.base.parameters():
+                    param.requires_grad = False
+
+                local_optim = torch.optim.SGD(local_model.parameters(), lr=lr_maml)
+                local_optim.zero_grad()
+
+                images_cntx = expert_cntx.xc[idx_exp]
+                targets_cntx = expert_cntx.yc[idx_exp]
+                exp_preds_cntx = expert_cntx.mc[idx_exp]
+                costs = (exp_preds_cntx==targets_cntx).int()
+                for _ in range(n_steps_maml):
+                    outputs = local_model(images_cntx)
+                    loss = loss_fn(outputs, costs, targets_cntx, n_classes)
+                    loss.backward()
+                    local_optim.step()
+                    local_optim.zero_grad()
+
+                # unfreeze base network for global update
+                for param in local_model.params.base.parameters():
+                    param.requires_grad = True
+
+                # NOTE: repeated above so should be combined.
+                m = torch.tensor(expert(input, target, target_sparse), device=device)
+                costs = (m==target).int()
+
+                outputs = local_model(input)
+                loss = loss_fn(outputs, costs, target, n_classes) / len(experts_train)
+                loss.backward()
+
+                for p_global, p_local in zip(model.parameters(), local_model.parameters()):
+                    p_global.grad += p_local.grad  # First-order approx. -> add gradients of finetuned and base model
+
+                loss_cum += loss
+            
+            epoch_train_loss.append(loss_cum.item())
+
+            # measure accuracy and record loss
+            prec1 = accuracy(outputs.data[:,:n_classes], target, topk=(1,))[0] # just measures clf accuracy
+            losses.update(loss_cum.data.item(), input.size(0))
+            top1.update(prec1.item(), input.size(0))
+
+            for optimizer, scheduler in zip(optimizer_lst,scheduler_lst):
+                optimizer.step()
+                scheduler.step()
+
+        else: # l2d=single,pop
+            loss = 0
+            for idx_exp, expert in enumerate(experts_train):
+                m = torch.tensor(expert(input, target, target_sparse), device=device)
+                costs = (m==target).int()
+                loss += loss_fn(outputs[idx_exp], costs, target, n_classes) # loss per expert
+            loss /= len(experts_train)
+            epoch_train_loss.append(loss.item())
+
+            # measure accuracy and record loss
+            prec1 = accuracy(outputs.data[0,:,:n_classes], target, topk=(1,))[0] # just measures clf accuracy
+            losses.update(loss.data.item(), input.size(0))
+            top1.update(prec1.item(), input.size(0))
+
+            # compute gradient and do SGD step
+            for optimizer in optimizer_lst:
+                optimizer.zero_grad()
+            loss.backward()
+            for optimizer, scheduler in zip(optimizer_lst,scheduler_lst):
+                optimizer.step()
+                scheduler.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -352,6 +425,7 @@ def train(model,
     # patience = 0
     iters = 0
 
+    n_finetune_steps_eval = config['n_steps_maml'] if config['l2d']=='single_maml' else 0
     for epoch in range(0, epochs):
         iters, train_loss = train_epoch(iters, 
                                         train_loader, 
@@ -364,7 +438,9 @@ def train(model,
                                         cntx_sampler_train,
                                         n_classes,
                                         config,
-                                        logger)
+                                        logger,
+                                        config['n_steps_maml'],
+                                        config['lr_maml'])
         metrics = evaluate(model,
                            experts_test,
                            loss_fn,
@@ -372,7 +448,9 @@ def train(model,
                            n_classes,
                            valid_loader,
                            config,
-                           logger)
+                           logger,
+                           n_finetune_steps=n_finetune_steps_eval,
+                           lr_finetune=config['lr_maml'])
 
         validation_loss = metrics["val_loss"]
 
@@ -401,6 +479,36 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
     val_loader = torch.utils.data.DataLoader(val_data, batch_size=config["val_batch_size"], shuffle=False, **kwargs)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
 
+    # for budget in config["budget"]:
+    #     test_cntx_sampler.reset()
+    #     logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
+    #     model.load_state_dict(copy.deepcopy(model_state_dict))
+    #     evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
+
+    for budget in config["budget"]: # budget=1.0
+        if (config["l2d"] == 'single_maml') or ((config["l2d"] == 'single') and config["finetune_single"]):
+            logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_finetune.log".format(budget)))
+            
+            n_finetune_steps_lst = [n_steps for n_steps in config["n_finetune_steps"] if n_steps >= config["n_steps_maml"]] \
+                                    if (config["l2d"] == 'single_maml') else config["n_finetune_steps"]
+            lr_finetune_lst = [config["lr_maml"]] if (config["l2d"] == 'single_maml') else config["lr_finetune"]
+
+            steps_lr_comb = list(itertools.product(n_finetune_steps_lst, lr_finetune_lst))
+            val_losses = []
+            for (n_steps, lr) in steps_lr_comb:
+                print(f'no. finetune steps: {n_steps}  step size: {lr}')
+                val_cntx_sampler.reset()
+                model.load_state_dict(copy.deepcopy(model_state_dict))
+                metrics = evaluate(model, experts_test, loss_fn, val_cntx_sampler, config["n_classes"], val_loader, config, None, budget, \
+                                n_steps, lr)
+                val_losses.append(metrics['val_loss'])
+            idx = np.argmin(np.array(val_losses))
+            best_finetune_steps, best_lr = steps_lr_comb[idx]
+            test_cntx_sampler.reset()
+            model.load_state_dict(copy.deepcopy(model_state_dict))
+            metrics = evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, \
+                                best_finetune_steps, best_lr)
+
     # # Only for l2d=pop
     # for budget in config["budget"]:
     #     for p_cntx_inclusion in config["p_cntx_inclusion"]:
@@ -409,37 +517,12 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
     #         model.load_state_dict(copy.deepcopy(model_state_dict))
     #         evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, p_cntx_inclusion)
 
-    for budget in config["budget"]:
-        # NOTE: revert this back after
-        test_cntx_sampler.reset()
-        logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
-        model.load_state_dict(copy.deepcopy(model_state_dict))
-        evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
-        
-        # if (config["l2d"] == 'single') and config["finetune_single"]:
-        #     logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_finetune.log".format(budget)))
-            
-        #     steps_lr_comb = list(itertools.product(config["n_finetune_steps"], config["lr_finetune"]))
-        #     val_losses = []
-        #     for (n_steps, lr) in steps_lr_comb:
-        #         print(f'no. finetune steps: {n_steps}  step size: {lr}')
-        #         val_cntx_sampler.reset()
-        #         model.load_state_dict(copy.deepcopy(model_state_dict))
-        #         metrics = evaluate(model, experts_test, loss_fn, val_cntx_sampler, config["n_classes"], val_loader, config, None, budget, \
-        #                         n_steps, lr)
-        #         val_losses.append(metrics['val_loss'])
-        #     idx = np.argmin(np.array(val_losses))
-        #     best_finetune_steps, best_lr = steps_lr_comb[idx]
-        #     test_cntx_sampler.reset()
-        #     model.load_state_dict(copy.deepcopy(model_state_dict))
-        #     metrics = evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, \
-        #                         best_finetune_steps, best_lr)
-
 
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    # config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # NOTE
+    config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}_lr{config['lr_maml']}_s{config['n_steps_maml']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
     if config["cifar"] == '20_100':
         config["n_classes"] = 20
@@ -463,13 +546,10 @@ def main(config):
         loss_fn = ova
 
     with_attn=False
-    with_tnp=False
     config_tokens = config["l2d"].split("_")
-    if len(config_tokens) > 1:
+    if (len(config_tokens) > 1) and (config_tokens[0] == 'pop'):
         if config_tokens[1] == 'attn':
             with_attn = True
-        elif config_tokens[1] == 'tnp':
-            with_tnp = True
         config["l2d"] = "pop"
 
     wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=config["wrn_widen_factor"], dropRate=0.0)
@@ -480,14 +560,11 @@ def main(config):
             raise FileNotFoundError('warmstart model checkpoint not found')
         wrnbase.load_state_dict(torch.load(warmstart_path, map_location=device))
         wrnbase = wrnbase.to(device)
-    
+
     if config["l2d"] == "pop":
         model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
                                                       with_attn=with_attn, with_softmax=with_softmax, \
                                                       decouple=config["decouple"])
-        # if with_tnp:
-        #     model = ClassifierRejectorWithContextEmbedderTransformer(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
-        #                                                      with_softmax=with_softmax, decouple=config["decouple"])
     else:
         model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax, \
                                    decouple=config["decouple"])
@@ -566,19 +643,22 @@ if __name__ == "__main__":
                             help="specify the experiment name. Checkpoints will be saved with this name.")
     
     ## NEW experiment setup
-    parser.add_argument('--mode', choices=['train', 'eval'], default='eval')
+    parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
-    parser.add_argument('--l2d', choices=['single', 'pop', 'pop_attn'], default='pop')
+    parser.add_argument('--l2d', choices=['single', 'single_maml', 'pop', 'pop_attn'], default='single_maml')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
 
     ## NEW train args
     parser.add_argument("--cifar", choices=["10", "20_100"], default="10")
-    parser.add_argument("--val_batch_size", type=int, default=8)
-    parser.add_argument("--test_batch_size", type=int, default=1)
+    parser.add_argument("--val_batch_size", type=int, default=32) # 8 (non-maml)
+    parser.add_argument("--test_batch_size", type=int, default=32) # 1 (non-maml)
     parser.add_argument('--warmstart', action='store_true')
     parser.set_defaults(warmstart=True)
     parser.add_argument("--warmstart_epochs", type=int, default=100)
+    ## NEW maml
+    parser.add_argument('--n_steps_maml', type=int, default=1) # TODO
+    parser.add_argument('--lr_maml', type=float, default=1e-2) # TODO
 
     ## EVAL
     # parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5]) # 1.0
