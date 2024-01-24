@@ -626,7 +626,8 @@ def main(config):
         train(model, train_data, val_data_trgt, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_val, config)
         eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config)
     else: # evaluation on test data
-        eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config)
+        # eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config) # NOTE
+        eval(model, val_data_trgt, val_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_val, config)
 
 
 if __name__ == "__main__":
