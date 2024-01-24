@@ -44,9 +44,9 @@ def evaluate(model,
             config,
             logger=None,
             budget=1.0,
-            p_cntx_inclusion=1.0,
             n_finetune_steps=0,
-            lr_finetune=1e-1):
+            lr_finetune=1e-1,
+            p_cntx_inclusion=1.0):
     '''
     data loader : assumed to be instantiated with shuffle=False
     '''
@@ -515,7 +515,7 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
     #         test_cntx_sampler.reset()
     #         logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_pc{}.log".format(budget,p_cntx_inclusion)))
     #         model.load_state_dict(copy.deepcopy(model_state_dict))
-    #         evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, p_cntx_inclusion)
+    #         evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, p_cntx_inclusion=p_cntx_inclusion)
 
 
 def main(config):
@@ -643,7 +643,7 @@ if __name__ == "__main__":
                             help="specify the experiment name. Checkpoints will be saved with this name.")
     
     ## NEW experiment setup
-    parser.add_argument('--mode', choices=['train', 'eval'], default='train')
+    parser.add_argument('--mode', choices=['train', 'eval'], default='eval')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
     parser.add_argument('--l2d', choices=['single', 'single_maml', 'pop', 'pop_attn'], default='single_maml')
@@ -658,7 +658,7 @@ if __name__ == "__main__":
     parser.add_argument("--warmstart_epochs", type=int, default=100)
     ## NEW maml
     parser.add_argument('--n_steps_maml', type=int, default=1) # TODO
-    parser.add_argument('--lr_maml', type=float, default=1e-2) # TODO
+    parser.add_argument('--lr_maml', type=float, default=1e-1) # TODO
 
     ## EVAL
     # parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5]) # 1.0
