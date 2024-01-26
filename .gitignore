@@ -160,7 +160,8 @@ cython_debug/
 #.idea/
 
 # Our additions
-data
+data/
+!data/HAM10000/preprocess.py
 *.json
 *.pt
 
