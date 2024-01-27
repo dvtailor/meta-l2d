@@ -161,7 +161,6 @@ cython_debug/
 
 # Our additions
 data/
-!data/HAM10000/preprocess.py
 *.json
 *.pt
 
