@@ -521,22 +521,21 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # NOTE
-    # config["ckp_dir"] = f"./runs/cifar{config['cifar']}/{config['loss_type']}/l2d_{config['l2d']}_lr{config['lr_maml']}_s{config['n_steps_maml']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    # config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}_lr{config['lr_maml']}_s{config['n_steps_maml']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
-    if config["cifar"] == '20_100':
+    if config["dataset"] == 'cifar20_100':
         config["n_classes"] = 20
         config["data_aug"] = True
         config["wrn_widen_factor"] = 4
-        config["n_cntx_pts"] = 100
         config["decouple"] = True
+        train_data, val_data, test_data = load_cifar(variety='20_100', data_aug=config["data_aug"], seed=config["seed"])
     else:
         config["n_classes"] = 10
         config["data_aug"] = False
         config["wrn_widen_factor"] = 2
-        config["n_cntx_pts"] = 50
         config["decouple"] = False
-    train_data, val_data, test_data = load_cifar(variety=config["cifar"], data_aug=config["data_aug"], seed=config["seed"])
+        train_data, val_data, test_data = load_cifar(variety='10', data_aug=config["data_aug"], seed=config["seed"])
 
     with_softmax = False
     if config["loss_type"] == 'softmax':
@@ -555,7 +554,7 @@ def main(config):
     wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=config["wrn_widen_factor"], dropRate=0.0)
 
     if config["warmstart"]:
-        warmstart_path = f"./pretrained/cifar{config['cifar']}/seed{str(config['seed'])}/default.pt"
+        warmstart_path = f"./pretrained/{config['dataset']}/seed{str(config['seed'])}/default.pt"
         if not os.path.isfile(warmstart_path):
             raise FileNotFoundError('warmstart model checkpoint not found')
         wrnbase.load_state_dict(torch.load(warmstart_path, map_location=device))
@@ -572,7 +571,7 @@ def main(config):
     config["n_experts"] = 10 # assume exactly divisible by 2
     experts_train = []
     experts_test = []
-    if config["cifar"] == '20_100':
+    if config["dataset"] == 'cifar20_100':
         n_oracle_superclass = 4
         n_oracle_subclass = 3 # 3 or 4 here. Affects gap between {single,pop,pop_attn}
         for _ in range(config["n_experts"]): # n_experts
@@ -614,12 +613,12 @@ def main(config):
     cntx_sampler_val = ContextSampler(images=val_data_cntx.dataset.data[val_data_cntx.indices], 
                                       labels=val_data_cntx.dataset.targets[val_data_cntx.indices], 
                                       transform=val_data.transform, 
-                                      labels_sparse=None if config["cifar"]=='10' else val_data_cntx.dataset.targets_sparse[val_data_cntx.indices],
+                                      labels_sparse=val_data_cntx.dataset.targets_sparse[val_data_cntx.indices] if config["dataset"]=='cifar20_100' else None,
                                       n_cntx_pts=config["n_cntx_pts"], device=device, **kwargs)
     cntx_sampler_test = ContextSampler(images=test_data_cntx.dataset.data[test_data_cntx.indices], 
                                       labels=np.array(test_data_cntx.dataset.targets)[test_data_cntx.indices], 
                                       transform=test_data.transform, 
-                                      labels_sparse=None if config["cifar"]=='10' else test_data_cntx.dataset.targets_sparse[test_data_cntx.indices],
+                                      labels_sparse=test_data_cntx.dataset.targets_sparse[test_data_cntx.indices] if config["dataset"]=='cifar20_100' else None,
                                       n_cntx_pts=config["n_cntx_pts"], device=device, **kwargs)
     
     if config["mode"] == 'train':
@@ -647,19 +646,20 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
     # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
-    parser.add_argument('--l2d', choices=['single', 'single_maml', 'pop', 'pop_attn'], default='single_maml')
+    parser.add_argument('--l2d', choices=['single', 'single_maml', 'pop', 'pop_attn'], default='single')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
+    parser.add_argument("--n_cntx_pts", type=int, default=50)
 
     ## NEW train args
-    parser.add_argument("--cifar", choices=["10", "20_100"], default="10")
-    parser.add_argument("--val_batch_size", type=int, default=32) # 8 (non-maml)
-    parser.add_argument("--test_batch_size", type=int, default=32) # 1 (non-maml)
+    parser.add_argument("--dataset", choices=["cifar10", "cifar20_100"], default="cifar10")
+    parser.add_argument("--val_batch_size", type=int, default=8) # 32 maml
+    parser.add_argument("--test_batch_size", type=int, default=1) # 32 maml
     parser.add_argument('--warmstart', action='store_true')
-    parser.set_defaults(warmstart=True)
+    parser.set_defaults(warmstart=False)
     parser.add_argument("--warmstart_epochs", type=int, default=100)
     ## NEW maml
-    parser.add_argument('--n_steps_maml', type=int, default=5) # TODO
-    parser.add_argument('--lr_maml', type=float, default=1e-1) # TODO
+    parser.add_argument('--n_steps_maml', type=int, default=5)
+    parser.add_argument('--lr_maml', type=float, default=1e-1)
 
     ## EVAL
     # parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5]) # 1.0
