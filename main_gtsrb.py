@@ -430,7 +430,7 @@ def main(config):
     config["n_classes"] = 43
     config["n_cntx_pts"] = 50
     
-    train_data, val_data, test_data = load_gtsrb(seed=config["seed"])
+    train_data, val_data, test_data = load_gtsrb()
 
     with_softmax = False
     if config["loss_type"] == 'softmax':

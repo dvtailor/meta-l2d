@@ -206,7 +206,7 @@ def main(config):
     
     config["n_classes"] = 43
 
-    train_data, val_data, test_data = load_gtsrb(seed=config["seed"])
+    train_data, val_data, test_data = load_gtsrb()
 
     model_base = resnet20()
     n_features = model_base.n_features
