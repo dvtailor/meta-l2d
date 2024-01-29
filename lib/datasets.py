@@ -236,7 +236,7 @@ def load_cifar(variety='10', data_aug=False, seed=0, train_split=0.9):
     return train_dataset, val_dataset, test_dataset
 
 
-def load_gtsrb(seed=0):
+def load_gtsrb():
     normalize = transforms.Normalize(mean=[x / 255.0 for x in [87.1, 79.7, 82.0]],
                                     std=[x / 255.0 for x in [69.8, 66.5, 67.9]])
     transform_train = transforms.Compose([
@@ -273,42 +273,37 @@ def load_gtsrb(seed=0):
     return train_dataset, val_dataset, test_dataset
 
 
-# def load_gtsrb(seed=0):
-#     normalize = transforms.Normalize(mean=[x / 255.0 for x in [87.1, 79.7, 82.0]],
-#                                     std=[x / 255.0 for x in [69.8, 66.5, 67.9]])
-#     transform_train = transforms.Compose([
-#         transforms.ToTensor(),
-#         normalize,
-#     ])
-#     transform_test = transform_train
+def load_ham10000():
+# def load_ham10000(data_aug=False):
+    ds_path = ROOT + '/data/HAM10000/'
+    train_dataset = torch.load(ds_path + 'train_data.pt')
+    val_dataset = torch.load(ds_path + 'validation_data.pt')
+    test_dataset = torch.load(ds_path + 'test_data.pt')
 
-#     train_dataset_all = datasets.GTSRB(root=ROOT+'/data', split='train', download=True)
-#     transform_resize = transforms.Resize((32, 32)) # Resize all images to 32x32 (originals are variable size)
+    # if data_aug:
+    #     transform_train = transforms.Compose([
+    #         # transforms.ToTensor(),
+    #         transforms.Lambda(lambda x: F.pad(x.unsqueeze(0),
+    #                                           (4, 4, 4, 4), mode='reflect').squeeze()),
+    #         transforms.ToPILImage(),
+    #         transforms.RandomCrop(224),
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.ToTensor(),
+    #     ])
+    # else:
+    transform_train = transforms.Compose([])
 
-#     train_images_all = np.vstack([np.array(transform_resize(train_dataset_all[i][0]))[None,:] for i in range(len(train_dataset_all))])
-#     train_targets_all = [train_dataset_all[i][1] for i in range(len(train_dataset_all))]
+    transform_test = transforms.Compose([])
 
-#     test_dataset = datasets.GTSRB(root=ROOT+'/data', split='test', download=True)
-#     test_images_all = np.vstack([np.array(transform_resize(test_dataset[i][0]))[None,:] for i in range(len(test_dataset))])
-#     test_targets_all = [test_dataset[i][1] for i in range(len(test_dataset))]
+    images_train = train_dataset["data"]
+    targets_train = train_dataset["labels"]
+    images_val = val_dataset["data"]
+    targets_val = val_dataset["labels"]
+    images_test = test_dataset["data"]
+    targets_test = test_dataset["labels"]
 
-#     images_all = np.vstack((train_images_all, test_images_all))
-#     targets_all = train_targets_all + test_targets_all
+    train_dataset = MyVisionDataset(images_train, targets_train, transform_train)
+    val_dataset = MyVisionDataset(images_val, targets_val, transform_test)
+    test_dataset = MyVisionDataset(images_test, targets_test, transform_test)
 
-#     # subset of 16,000 examples (unseeded)
-#     images_all_new, _, targets_all_new, _ = \
-#         train_test_split(images_all, targets_all, train_size=16000, random_state=0, stratify=targets_all)
-    
-#     # train/test split n=(12,4k) unseeded
-#     images_train_all, images_test, targets_train_all, targets_test = \
-#         train_test_split(images_all_new, targets_all_new, train_size=12000, random_state=0, stratify=targets_all_new)
-    
-#     # train/val spit (8k,4k) seeded
-#     images_train, images_val, targets_train, targets_val = \
-#         train_test_split(images_train_all, targets_train_all, train_size=8000, random_state=seed, stratify=targets_train_all)
-
-#     train_dataset = MyVisionDataset(images_train, targets_train, transform_train)
-#     val_dataset = MyVisionDataset(images_val, targets_val, transform_test)
-#     test_dataset = MyVisionDataset(images_test, targets_test, transform_test)
-    
-#     return train_dataset, val_dataset, test_dataset
+    return train_dataset, val_dataset, test_dataset
