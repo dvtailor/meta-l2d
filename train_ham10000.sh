@@ -21,7 +21,10 @@ if [ "${warmstart}" = true ]; then
     flags="${flags} --warmstart"
 fi
 
-python main.py --l2d=${l2d} --p_out=${p_out} --mode=${mode} --seed=${seed} \
-               --train_batch_size=${train_batch_size} --lr_wrn=${lr_wrn} --lr_other=${lr_other} \
-               --dataset=${dataset} --val_batch_size=${val_batch_size} --test_batch_size=${test_batch_size} \
-               --n_cntx_pts=${n_cntx_pts} --epochs=${epochs} ${flags}
+command="python main.py --l2d=${l2d} --p_out=${p_out} --mode=${mode} --seed=${seed}\
+                        --train_batch_size=${train_batch_size} --lr_wrn=${lr_wrn} --lr_other=${lr_other}\
+                        --dataset=${dataset} --val_batch_size=${val_batch_size} --test_batch_size=${test_batch_size}\
+                        --n_cntx_pts=${n_cntx_pts} --epochs=${epochs} ${flags}"
+echo ${command}
+
+eval $command
