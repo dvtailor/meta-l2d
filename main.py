@@ -20,7 +20,8 @@ from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
 from lib.experts import SyntheticExpertOverlap, Cifar20SyntheticExpert
 from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase
-from lib.datasets import load_cifar, ContextSampler
+from lib.resnet224 import ResNet34
+from lib.datasets import load_cifar, load_ham10000, ContextSampler
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -479,13 +480,12 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
     val_loader = torch.utils.data.DataLoader(val_data, batch_size=config["val_batch_size"], shuffle=False, **kwargs)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
 
-    # for budget in config["budget"]:
-    #     test_cntx_sampler.reset()
-    #     logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
-    #     model.load_state_dict(copy.deepcopy(model_state_dict))
-    #     evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
-
     for budget in config["budget"]: # budget=1.0
+        test_cntx_sampler.reset()
+        logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
+        model.load_state_dict(copy.deepcopy(model_state_dict))
+        evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
+
         if (config["l2d"] == 'single_maml') or ((config["l2d"] == 'single') and config["finetune_single"]):
             logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_finetune.log".format(budget)))
             
@@ -526,16 +526,24 @@ def main(config):
     os.makedirs(config["ckp_dir"], exist_ok=True)
     if config["dataset"] == 'cifar20_100':
         config["n_classes"] = 20
-        config["data_aug"] = True
-        config["wrn_widen_factor"] = 4
         config["decouple"] = True
-        train_data, val_data, test_data = load_cifar(variety='20_100', data_aug=config["data_aug"], seed=config["seed"])
-    else:
+        train_data, val_data, test_data = load_cifar(variety='20_100', data_aug=True, seed=config["seed"])
+        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=4, dropRate=0.0)
+        n_features = resnet_base.nChannels
+    elif config["dataset"] == 'cifar10':
         config["n_classes"] = 10
-        config["data_aug"] = False
-        config["wrn_widen_factor"] = 2
         config["decouple"] = False
-        train_data, val_data, test_data = load_cifar(variety='10', data_aug=config["data_aug"], seed=config["seed"])
+        train_data, val_data, test_data = load_cifar(variety='10', data_aug=False, seed=config["seed"])
+        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0)
+        n_features = resnet_base.nChannels
+    elif config["dataset"] == 'ham10000':
+        config["n_classes"] = 7
+        config["decouple"] = False
+        train_data, val_data, test_data = load_ham10000()
+        resnet_base = ResNet34()
+        n_features = resnet_base.n_features
+    else:
+        raise ValueError('dataset unrecognised')
 
     with_softmax = False
     if config["loss_type"] == 'softmax':
@@ -551,21 +559,19 @@ def main(config):
             with_attn = True
         config["l2d"] = "pop"
 
-    wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=config["wrn_widen_factor"], dropRate=0.0)
-
     if config["warmstart"]:
         warmstart_path = f"./pretrained/{config['dataset']}/seed{str(config['seed'])}/default.pt"
         if not os.path.isfile(warmstart_path):
             raise FileNotFoundError('warmstart model checkpoint not found')
-        wrnbase.load_state_dict(torch.load(warmstart_path, map_location=device))
-        wrnbase = wrnbase.to(device)
+        resnet_base.load_state_dict(torch.load(warmstart_path, map_location=device))
+        resnet_base = resnet_base.to(device)
 
     if config["l2d"] == "pop":
-        model = ClassifierRejectorWithContextEmbedder(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, \
+        model = ClassifierRejectorWithContextEmbedder(resnet_base, num_classes=int(config["n_classes"]), n_features=n_features, \
                                                       with_attn=with_attn, with_softmax=with_softmax, \
                                                       decouple=config["decouple"])
     else:
-        model = ClassifierRejector(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=with_softmax, \
+        model = ClassifierRejector(resnet_base, num_classes=int(config["n_classes"]), n_features=n_features, with_softmax=with_softmax, \
                                    decouple=config["decouple"])
     
     config["n_experts"] = 10 # assume exactly divisible by 2
@@ -651,7 +657,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_cntx_pts", type=int, default=50)
 
     ## NEW train args
-    parser.add_argument("--dataset", choices=["cifar10", "cifar20_100"], default="cifar10")
+    parser.add_argument("--dataset", choices=["cifar10", "cifar20_100", "ham10000"], default="cifar10")
     parser.add_argument("--val_batch_size", type=int, default=8) # 32 maml
     parser.add_argument("--test_batch_size", type=int, default=1) # 32 maml
     parser.add_argument('--warmstart', action='store_true')
