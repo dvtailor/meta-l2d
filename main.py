@@ -502,7 +502,7 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
                 metrics = evaluate(model, experts_test, loss_fn, val_cntx_sampler, config["n_classes"], val_loader, config, None, budget, \
                                 n_steps, lr)
                 val_losses.append(metrics['val_loss'])
-            idx = np.argmin(np.array(val_losses))
+            idx = np.nanargmin(np.array(val_losses))
             best_finetune_steps, best_lr = steps_lr_comb[idx]
             test_cntx_sampler.reset()
             model.load_state_dict(copy.deepcopy(model_state_dict))
