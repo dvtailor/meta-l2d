@@ -16,7 +16,8 @@ import torch.backends.cudnn as cudnn
 # local imports
 from lib.utils import AverageMeter, accuracy, get_logger
 from lib.wideresnet import Classifier, WideResNetBase
-from lib.datasets import load_cifar
+from lib.datasets import load_cifar, load_ham10000
+from lib.resnet224 import ResNet34
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -199,27 +200,33 @@ def eval(model, test_data, config):
 
 def main(config):
     set_seed(config["seed"])
-    
-    config["ckp_dir"] = f"./pretrained/cifar{config['cifar']}/seed{str(config['seed'])}"
+    config["ckp_dir"] = f"./pretrained/{config['dataset']}/seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
-    if config["cifar"] == '20_100':
+    if config["dataset"] == 'cifar20_100':
         config["n_classes"] = 20
-        data_aug = True
-        wrn_widen_factor = 4
-    else:
+        train_data, val_data, test_data = load_cifar(variety='20_100', data_aug=True, seed=config["seed"])
+        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=4, dropRate=0.0)
+        n_features = resnet_base.nChannels
+    elif config["dataset"] == 'cifar10':
         config["n_classes"] = 10
-        data_aug = False
-        wrn_widen_factor = 2
-    train_data, val_data, test_data = load_cifar(variety=config["cifar"], data_aug=data_aug, seed=config["seed"])
+        train_data, val_data, test_data = load_cifar(variety='10', data_aug=False, seed=config["seed"])
+        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0)
+        n_features = resnet_base.nChannels
+    elif config["dataset"] == 'ham10000':
+        config["n_classes"] = 7
+        train_data, val_data, test_data = load_ham10000()
+        resnet_base = ResNet34()
+        n_features = resnet_base.n_features
+    else:
+        raise ValueError('dataset unrecognised')
 
-    wrnbase = WideResNetBase(depth=28, n_channels=3, widen_factor=wrn_widen_factor, dropRate=0.0)
-    model = Classifier(wrnbase, num_classes=int(config["n_classes"]), n_features=wrnbase.nChannels, with_softmax=False)
+    model = Classifier(resnet_base, num_classes=int(config["n_classes"]), n_features=n_features, with_softmax=False)
     
     train(model, train_data, val_data, config)
     eval(model, test_data, config)
 
-    # save only WideResNet part
-    torch.save(wrnbase.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
+    # save only resnet part
+    torch.save(resnet_base.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
     with open(os.path.join(config["ckp_dir"], config["experiment_name"] + ".json"), "w") as f:
         json.dump(config, f)
     
@@ -228,15 +235,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--train_batch_size", type=int, default=128)
-    parser.add_argument("--epochs", type=int, default=200)
-    parser.add_argument("--lr", type=float, default=0.1,
-                            help="learning rate.")
+    parser.add_argument("--epochs", type=int, default=100) # 200
+    parser.add_argument("--lr", type=float, default=0.01, help="learning rate.")
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     parser.add_argument("--experiment_name", type=str, default="default",
                             help="specify the experiment name. Checkpoints will be saved with this name.")
-    
-    ## NEW
-    parser.add_argument("--cifar", choices=["10", "20_100"], default="10")
+    parser.add_argument("--dataset", choices=["cifar10", "cifar20_100", "ham10000"], default="ham10000")
     
     config = parser.parse_args().__dict__
     main(config)
