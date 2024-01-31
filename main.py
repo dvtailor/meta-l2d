@@ -568,8 +568,8 @@ def main(config):
 
     if config["l2d"] == "pop":
         model = ClassifierRejectorWithContextEmbedder(resnet_base, num_classes=int(config["n_classes"]), n_features=n_features, \
-                                                      with_attn=with_attn, with_softmax=with_softmax, \
-                                                      decouple=config["decouple"])
+                                                      with_attn=with_attn, with_softmax=with_softmax, decouple=config["decouple"], \
+                                                      depth_embed=config["depth_embed"], depth_rej=config["depth_reject"])
     else:
         model = ClassifierRejector(resnet_base, num_classes=int(config["n_classes"]), n_features=n_features, with_softmax=with_softmax, \
                                    decouple=config["decouple"])
@@ -663,6 +663,8 @@ if __name__ == "__main__":
     parser.add_argument('--warmstart', action='store_true')
     parser.set_defaults(warmstart=False)
     parser.add_argument("--warmstart_epochs", type=int, default=100)
+    parser.add_argument("--depth_embed", type=int, default=6)
+    parser.add_argument("--depth_reject", type=int, default=3)
     ## NEW maml
     parser.add_argument('--n_steps_maml', type=int, default=5)
     parser.add_argument('--lr_maml', type=float, default=1e-1)
