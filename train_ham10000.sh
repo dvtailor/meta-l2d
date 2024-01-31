@@ -5,17 +5,17 @@ p_out=$2
 mode=$3
 seed=$4
 
-train_batch_size=64
-lr_wrn=1e-2
-lr_other=1e-3
+train_batch_size=128
+lr_wrn=1e-1
+lr_other=1e-2
 dataset=ham10000
 val_batch_size=8
 test_batch_size=1
-warmstart=false
+warmstart=true
 n_cntx_pts=140
-epochs=150
-depth_embed=5
-depth_reject=3
+warmstart_epochs=100
+depth_embed=6
+depth_reject=4
 
 
 flags=''
@@ -26,7 +26,7 @@ fi
 command="python main.py --l2d=${l2d} --p_out=${p_out} --mode=${mode} --seed=${seed}\
                         --train_batch_size=${train_batch_size} --lr_wrn=${lr_wrn} --lr_other=${lr_other}\
                         --dataset=${dataset} --val_batch_size=${val_batch_size} --test_batch_size=${test_batch_size}\
-                        --n_cntx_pts=${n_cntx_pts} --epochs=${epochs} --depth_embed=${depth_embed}\
+                        --n_cntx_pts=${n_cntx_pts} --warmstart_epochs=${warmstart_epochs} --depth_embed=${depth_embed}\
                         --depth_reject=${depth_reject} ${flags}"
 echo ${command}
 

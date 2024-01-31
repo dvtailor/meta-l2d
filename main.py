@@ -455,7 +455,7 @@ def train(model,
 
         validation_loss = metrics["val_loss"]
 
-        if validation_loss < best_validation_loss:
+        if (epoch+1 > milestone_epoch) and (validation_loss < best_validation_loss): # NOTE: tweak for HAM10000
             best_validation_loss = validation_loss
             # logger.info("Saving the model with system accuracy {}".format(metrics['sys_acc']))
             torch.save(model.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
