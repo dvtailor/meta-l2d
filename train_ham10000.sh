@@ -17,6 +17,7 @@ warmstart_epochs=100
 depth_embed=6
 depth_reject=4
 lr_finetune="1e-2 1e-3"
+scoring_rule=sys_acc
 
 
 flags=''
@@ -28,7 +29,7 @@ command="python main.py --l2d=${l2d} --p_out=${p_out} --mode=${mode} --seed=${se
                         --train_batch_size=${train_batch_size} --lr_wrn=${lr_wrn} --lr_other=${lr_other}\
                         --dataset=${dataset} --val_batch_size=${val_batch_size} --test_batch_size=${test_batch_size}\
                         --n_cntx_pts=${n_cntx_pts} --warmstart_epochs=${warmstart_epochs} --depth_embed=${depth_embed}\
-                        --depth_reject=${depth_reject} --lr_finetune ${lr_finetune} ${flags}"
+                        --depth_reject=${depth_reject} --lr_finetune ${lr_finetune} --scoring_rule=${scoring_rule} ${flags}"
 echo ${command}
 
 eval $command

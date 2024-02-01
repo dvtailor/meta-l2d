@@ -422,7 +422,8 @@ def train(model,
     optimizer_lst = [optimizer_base, optimizer_new]
     scheduler_lst = [scheduler_base, scheduler_new]
 
-    best_validation_loss = np.inf
+    scoring_rule = config['scoring_rule']
+    best_validation_score = np.inf
     # patience = 0
     iters = 0
 
@@ -453,10 +454,10 @@ def train(model,
                            n_finetune_steps=n_finetune_steps_eval,
                            lr_finetune=config['lr_maml'])
 
-        validation_loss = metrics["val_loss"]
+        validation_score = metrics[scoring_rule] if scoring_rule=='val_loss' else -metrics[scoring_rule]
 
-        if (epoch+1 > milestone_epoch) and (validation_loss < best_validation_loss): # NOTE: tweak for HAM10000
-            best_validation_loss = validation_loss
+        if validation_score < best_validation_score:
+            best_validation_score = validation_score
             # logger.info("Saving the model with system accuracy {}".format(metrics['sys_acc']))
             torch.save(model.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
         # Additionally save the whole config dict
@@ -480,6 +481,7 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
     val_loader = torch.utils.data.DataLoader(val_data, batch_size=config["val_batch_size"], shuffle=False, **kwargs)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
 
+    scoring_rule = config["scoring_rule"]
     for budget in config["budget"]: # budget=1.0
         test_cntx_sampler.reset()
         logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
@@ -494,15 +496,16 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
             lr_finetune_lst = [config["lr_maml"]] if (config["l2d"] == 'single_maml') else config["lr_finetune"]
 
             steps_lr_comb = list(itertools.product(n_finetune_steps_lst, lr_finetune_lst))
-            val_losses = []
+            val_scores = []
             for (n_steps, lr) in steps_lr_comb:
                 print(f'no. finetune steps: {n_steps}  step size: {lr}')
                 val_cntx_sampler.reset()
                 model.load_state_dict(copy.deepcopy(model_state_dict))
                 metrics = evaluate(model, experts_test, loss_fn, val_cntx_sampler, config["n_classes"], val_loader, config, None, budget, \
                                 n_steps, lr)
-                val_losses.append(metrics['val_loss'])
-            idx = np.nanargmin(np.array(val_losses))
+                score = metrics[scoring_rule] if scoring_rule=='val_loss' else -metrics[scoring_rule]
+                val_scores.append(score)
+            idx = np.nanargmin(np.array(val_scores))
             best_finetune_steps, best_lr = steps_lr_comb[idx]
             test_cntx_sampler.reset()
             model.load_state_dict(copy.deepcopy(model_state_dict))
@@ -655,6 +658,7 @@ if __name__ == "__main__":
     parser.add_argument('--l2d', choices=['single', 'single_maml', 'pop', 'pop_attn'], default='single')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
     parser.add_argument("--n_cntx_pts", type=int, default=50)
+    parser.add_argument('--scoring_rule', choices=['val_loss', 'sys_acc'], default='val_loss')
 
     ## NEW train args
     parser.add_argument("--dataset", choices=["cifar10", "cifar20_100", "ham10000"], default="cifar10")
