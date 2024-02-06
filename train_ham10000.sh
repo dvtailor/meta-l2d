@@ -17,7 +17,7 @@ warmstart_epochs=100
 depth_embed=6
 depth_reject=4
 lr_finetune="1e-2 1e-3"
-scoring_rule=val_loss
+scoring_rule=sys_acc
 
 
 flags=''

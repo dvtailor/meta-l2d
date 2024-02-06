@@ -481,7 +481,7 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
     val_loader = torch.utils.data.DataLoader(val_data, batch_size=config["val_batch_size"], shuffle=False, **kwargs)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
 
-    scoring_rule = 'val_loss' #config["scoring_rule"] # NOTE
+    scoring_rule = 'val_loss'
     for budget in config["budget"]: # budget=1.0
         test_cntx_sampler.reset()
         logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
