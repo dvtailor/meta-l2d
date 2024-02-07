@@ -19,10 +19,11 @@ import torch.backends.cudnn as cudnn
 from lib.utils import AverageMeter, accuracy, get_logger
 from lib.losses import cross_entropy, ova
 from lib.experts import SyntheticExpertOverlap, Cifar20SyntheticExpert
-from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase
+from lib.modules import ClassifierRejector, ClassifierRejectorWithContextEmbedder
 from lib.resnet224 import ResNet34
 from lib.resnet import resnet20
 from lib.datasets import load_cifar, load_ham10000, load_gtsrb, ContextSampler
+from lib.wideresnet import WideResNetBase
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")

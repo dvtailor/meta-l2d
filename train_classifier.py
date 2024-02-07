@@ -15,9 +15,10 @@ import torch.backends.cudnn as cudnn
 
 # local imports
 from lib.utils import AverageMeter, accuracy, get_logger
-from lib.wideresnet import Classifier, WideResNetBase
+from lib.modules import Classifier
 from lib.datasets import load_cifar, load_ham10000
 from lib.resnet224 import ResNet34
+from lib.wideresnet import WideResNetBase
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")

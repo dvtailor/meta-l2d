@@ -1,12 +1,7 @@
-# Experts for CIFAR-10
-from attrdict import AttrDict
 import random
 import numpy as np
-import torch
 
-from lib.datasets import MyVisionDataset, coarse2sparse
-
-# TODO: consider creating parent class of expert generator
+from lib.datasets import coarse2sparse
 
 # expert correct in class_oracle with prob. p_in; correct on other classes with prob. p_out
 class SyntheticExpertOverlap():
