@@ -482,7 +482,7 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
 
     scoring_rule = 'val_loss'
-    for budget in config["budget"]: # budget=1.0
+    for budget in config["budget"]:
         test_cntx_sampler.reset()
         logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
         model.load_state_dict(copy.deepcopy(model_state_dict))
@@ -674,8 +674,8 @@ if __name__ == "__main__":
     parser.add_argument('--lr_maml', type=float, default=1e-1)
 
     ## EVAL
-    # parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5]) # 1.0
-    parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
+    parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5]) # 1.0
+    # parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
     # parser.add_argument('--p_cntx_inclusion', nargs='+', type=float, default=[0.,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]) # 1.0 # NB: rebuttal
 
     parser.add_argument('--finetune_single', action='store_true')
