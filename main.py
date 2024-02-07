@@ -21,7 +21,8 @@ from lib.losses import cross_entropy, ova
 from lib.experts import SyntheticExpertOverlap, Cifar20SyntheticExpert
 from lib.wideresnet import ClassifierRejector, ClassifierRejectorWithContextEmbedder, WideResNetBase
 from lib.resnet224 import ResNet34
-from lib.datasets import load_cifar, load_ham10000, ContextSampler
+from lib.resnet import resnet20
+from lib.datasets import load_cifar, load_ham10000, load_gtsrb, ContextSampler
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -545,6 +546,12 @@ def main(config):
         train_data, val_data, test_data = load_ham10000()
         resnet_base = ResNet34()
         n_features = resnet_base.n_features
+    elif config["dataset"] == 'gtsrb':
+        config["n_classes"] = 43
+        config["decouple"] = False
+        train_data, val_data, test_data = load_gtsrb()
+        resnet_base = resnet20()
+        n_features = resnet_base.n_features
     else:
         raise ValueError('dataset unrecognised')
 
@@ -594,6 +601,17 @@ def main(config):
             classes_coarse = np.random.choice(np.arange(config["n_classes"]), size=n_oracle_superclass, replace=False)
             expert = Cifar20SyntheticExpert(classes_coarse, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'], \
                                             n_oracle_subclass=n_oracle_subclass)
+            experts_test.append(expert)
+    elif config["dataset"] == 'gtsrb':
+        n_classes_oracle = 5
+        for _ in range(config["n_experts"]): # train
+            classes_oracle = np.random.choice(np.arange(config["n_classes"]), size=n_classes_oracle, replace=False)
+            expert = SyntheticExpertOverlap(classes_oracle, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
+            experts_train.append(expert)
+        experts_test += experts_train[:config["n_experts"]//2] # pick 50% experts from experts_train (order not matter)
+        for _ in range(config["n_experts"]//2): # then sample 50% new experts
+            classes_oracle = np.random.choice(np.arange(config["n_classes"]), size=n_classes_oracle, replace=False)
+            expert = SyntheticExpertOverlap(classes_oracle, n_classes=config["n_classes"], p_in=1.0, p_out=config['p_out'])
             experts_test.append(expert)
     else:
         for _ in range(config["n_experts"]): # train
@@ -661,7 +679,7 @@ if __name__ == "__main__":
     parser.add_argument('--scoring_rule', choices=['val_loss', 'sys_acc'], default='val_loss')
 
     ## NEW train args
-    parser.add_argument("--dataset", choices=["cifar10", "cifar20_100", "ham10000"], default="cifar10")
+    parser.add_argument("--dataset", choices=["cifar10", "cifar20_100", "ham10000", "gtsrb"], default="cifar10")
     parser.add_argument("--val_batch_size", type=int, default=8) # 32 maml
     parser.add_argument("--test_batch_size", type=int, default=1) # 32 maml
     parser.add_argument('--warmstart', action='store_true')
