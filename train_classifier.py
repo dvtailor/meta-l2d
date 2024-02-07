@@ -201,21 +201,25 @@ def eval(model, test_data, config):
 
 def main(config):
     set_seed(config["seed"])
-    config["ckp_dir"] = f"./pretrained/{config['dataset']}/seed{str(config['seed'])}"
+    if (config['dataset']=='cifar10' or config['dataset']=='cifar20_100') and config['normlayer']=='frn':
+        export_aug = '_frn'
+    else:
+        export_aug = ''
+    config["ckp_dir"] = f"./pretrained/{config['dataset']}{export_aug}/seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
     if config["dataset"] == 'cifar20_100':
         config["n_classes"] = 20
         config["epochs"] = 200
         config["lr"] = 0.1
         train_data, val_data, test_data = load_cifar(variety='20_100', data_aug=True, seed=config["seed"])
-        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=4, dropRate=0.0)
+        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=4, dropRate=0.0, norm_type=config["normlayer"])
         n_features = resnet_base.nChannels
     elif config["dataset"] == 'cifar10':
         config["n_classes"] = 10
         config["epochs"] = 200
         config["lr"] = 0.1
         train_data, val_data, test_data = load_cifar(variety='10', data_aug=False, seed=config["seed"])
-        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0)
+        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0, norm_type=config["normlayer"])
         n_features = resnet_base.nChannels
     elif config["dataset"] == 'ham10000':
         config["n_classes"] = 7
@@ -248,6 +252,7 @@ if __name__ == "__main__":
     parser.add_argument("--experiment_name", type=str, default="default",
                             help="specify the experiment name. Checkpoints will be saved with this name.")
     parser.add_argument("--dataset", choices=["cifar10", "cifar20_100", "ham10000"], default="cifar10")
+    parser.add_argument("--normlayer", choices=["batchnorm", "frn"], default="frn") # only for cifar/wrn
     
     config = parser.parse_args().__dict__
     main(config)
