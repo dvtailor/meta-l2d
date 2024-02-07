@@ -386,14 +386,10 @@ def train(model,
     model = model.to(device)
     cudnn.benchmark = True
 
-    if config["warmstart"]:
-        epochs = config["warmstart_epochs"]
-        lr_wrn = config["lr_wrn"]/10
-        lr_clf_rej = config["lr_other"]/10
-    else:
-        epochs = config["epochs"]
-        lr_wrn = config["lr_wrn"]
-        lr_clf_rej = config["lr_other"]
+    epochs = config["epochs"]
+    lr_wrn = config["lr_wrn"]
+    lr_clf_rej = config["lr_other"]
+
     # assuming epochs >= 50
     if epochs > 100:
         milestone_epoch = epochs - 50    
@@ -684,7 +680,6 @@ if __name__ == "__main__":
     parser.add_argument("--test_batch_size", type=int, default=1) # 32 maml
     parser.add_argument('--warmstart', action='store_true')
     parser.set_defaults(warmstart=False)
-    parser.add_argument("--warmstart_epochs", type=int, default=100)
     parser.add_argument("--depth_embed", type=int, default=6)
     parser.add_argument("--depth_reject", type=int, default=3)
     ## NEW maml
