@@ -525,17 +525,21 @@ def main(config):
     config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     # config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}_lr{config['lr_maml']}_s{config['n_steps_maml']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
+    if config['l2d']=='single_maml':
+        norm_type = 'frn'
+    else:
+        norm_type = 'batchnorm'
     if config["dataset"] == 'cifar20_100':
         config["n_classes"] = 20
         config["decouple"] = True
         train_data, val_data, test_data = load_cifar(variety='20_100', data_aug=True, seed=config["seed"])
-        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=4, dropRate=0.0)
+        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=4, dropRate=0.0, norm_type=norm_type)
         n_features = resnet_base.nChannels
     elif config["dataset"] == 'cifar10':
         config["n_classes"] = 10
         config["decouple"] = False
         train_data, val_data, test_data = load_cifar(variety='10', data_aug=False, seed=config["seed"])
-        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0)
+        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0, norm_type=norm_type)
         n_features = resnet_base.nChannels
     elif config["dataset"] == 'ham10000':
         config["n_classes"] = 7
@@ -567,7 +571,10 @@ def main(config):
         config["l2d"] = "pop"
 
     if config["warmstart"]:
-        warmstart_path = f"./pretrained/{config['dataset']}/seed{str(config['seed'])}/default.pt"
+        if config['l2d']=='single_maml':
+            warmstart_path = f"./pretrained/{config['dataset']}_frn/seed{str(config['seed'])}/default.pt"
+        else:    
+            warmstart_path = f"./pretrained/{config['dataset']}/seed{str(config['seed'])}/default.pt"
         if not os.path.isfile(warmstart_path):
             raise FileNotFoundError('warmstart model checkpoint not found')
         resnet_base.load_state_dict(torch.load(warmstart_path, map_location=device))
@@ -689,8 +696,7 @@ if __name__ == "__main__":
 
     ## EVAL
     # parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5])
-    parser.add_argument('--budget', nargs='+', type=float, default=[0.2,0.5])
-    # parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
+    parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
     # parser.add_argument('--p_cntx_inclusion', nargs='+', type=float, default=[0.,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]) # 1.0 # NB: rebuttal
 
     parser.add_argument('--finetune_single', action='store_true')
