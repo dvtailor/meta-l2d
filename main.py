@@ -481,10 +481,11 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
 
     scoring_rule = 'val_loss'
     for budget in config["budget"]:
-        test_cntx_sampler.reset()
-        logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
-        model.load_state_dict(copy.deepcopy(model_state_dict))
-        evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
+        if config["l2d"] != 'single_maml':
+            test_cntx_sampler.reset()
+            logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
+            model.load_state_dict(copy.deepcopy(model_state_dict))
+            evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
 
         if (config["l2d"] == 'single_maml') or ((config["l2d"] == 'single') and config["finetune_single"]):
             logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_finetune.log".format(budget)))
@@ -522,8 +523,8 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
-    # config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}_lr{config['lr_maml']}_s{config['n_steps_maml']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    # config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # NOTE
+    config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}_lr{config['lr_maml']}_s{config['n_steps_maml']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
     os.makedirs(config["ckp_dir"], exist_ok=True)
     if config['l2d']=='single_maml':
         norm_type = 'frn'
@@ -656,8 +657,8 @@ def main(config):
         train(model, train_data, val_data_trgt, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_val, config)
         eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config)
     else: # evaluation on test data
-        eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config) # NOTE
-        # eval(model, val_data_trgt, val_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_val, config)
+        # eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config) # NOTE
+        eval(model, val_data_trgt, val_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_val, config)
 
 
 if __name__ == "__main__":

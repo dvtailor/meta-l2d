@@ -4,6 +4,13 @@ l2d=$1
 p_out=$2
 mode=$3
 seed=$4
+flags=''
+if [ ! -z "$5" ]; then
+    flags="${flags} --n_steps_maml=${5}"
+fi
+if [ ! -z "$6" ]; then
+    flags="${flags} --lr_maml=${6}"
+fi
 
 train_batch_size=128
 lr_wrn=1e-2
@@ -18,8 +25,6 @@ n_cntx_pts=100
 depth_embed=6
 depth_reject=4
 
-
-flags=''
 if [ "${warmstart}" = true ]; then
     flags="${flags} --warmstart"
 fi
