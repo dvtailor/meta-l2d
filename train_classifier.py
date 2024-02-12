@@ -194,7 +194,7 @@ def eval(model, test_data, config):
     # model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
     # model = model.to(device)
     kwargs = {'num_workers': 0, 'pin_memory': True}
-    test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["train_batch_size"], shuffle=False, **kwargs)
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
     logger = get_logger(os.path.join(config["ckp_dir"], "eval.log"))
     evaluate(model, config["n_classes"], test_loader, config, logger)
 
@@ -246,6 +246,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--train_batch_size", type=int, default=128)
+    parser.add_argument("--test_batch_size", type=int, default=1)
     # parser.add_argument("--epochs", type=int, default=200)
     # parser.add_argument("--lr", type=float, default=0.1, help="learning rate.")
     parser.add_argument("--weight_decay", type=float, default=5e-4)
