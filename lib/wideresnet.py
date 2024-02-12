@@ -56,11 +56,11 @@ class WideResNetBase(nn.Module):
         self.conv1 = nn.Conv2d(n_channels, nChannels[0], kernel_size=3, stride=1,
                                padding=1, bias=False)
         # 1st block
-        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1, dropRate)
+        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1, dropRate, self.normalization_layer)
         # 2nd block
-        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2, dropRate)
+        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2, dropRate, self.normalization_layer)
         # 3rd block
-        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2, dropRate)
+        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2, dropRate, self.normalization_layer)
         # global average pooling and classifier
         self.bn1 = self.normalization_layer(nChannels[3])
         self.relu = nn.ReLU(inplace=True)
