@@ -24,6 +24,7 @@ epochs=100
 n_cntx_pts=50
 depth_embed=6
 depth_reject=4
+norm_type=frn
 
 if [ "${warmstart}" = true ]; then
     flags="${flags} --warmstart"
@@ -33,7 +34,7 @@ command="python main.py --l2d=${l2d} --p_out=${p_out} --mode=${mode} --seed=${se
                         --train_batch_size=${train_batch_size} --lr_wrn=${lr_wrn} --lr_other=${lr_other} --weight_decay=${weight_decay}\
                         --dataset=${dataset} --val_batch_size=${val_batch_size} --test_batch_size=${test_batch_size}\
                         --epochs=${epochs} --n_cntx_pts=${n_cntx_pts} --depth_embed=${depth_embed}\
-                        --depth_reject=${depth_reject} ${flags}"
+                        --depth_reject=${depth_reject} --norm_type=${norm_type} ${flags}"
 echo ${command}
 
 eval $command

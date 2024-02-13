@@ -486,7 +486,7 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
             logger = get_logger(os.path.join(config["ckp_dir"], "eval{}.log".format(budget)))
             model.load_state_dict(copy.deepcopy(model_state_dict))
             evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget)
-
+        
         if (config["l2d"] == 'single_maml') or ((config["l2d"] == 'single') and config["finetune_single"]):
             logger = get_logger(os.path.join(config["ckp_dir"], "eval{}_finetune.log".format(budget)))
             
@@ -523,24 +523,20 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
 def main(config):
     set_seed(config["seed"])
     # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
-    # config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # NOTE
-    config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}_lr{config['lr_maml']}_s{config['n_steps_maml']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
+    # config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}_lr{config['lr_maml']}_s{config['n_steps_maml']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # NOTE
     os.makedirs(config["ckp_dir"], exist_ok=True)
-    if config['l2d']=='single_maml':
-        norm_type = 'frn'
-    else:
-        norm_type = 'batchnorm'
     if config["dataset"] == 'cifar20_100':
         config["n_classes"] = 20
         config["decouple"] = True
         train_data, val_data, test_data = load_cifar(variety='20_100', data_aug=True, seed=config["seed"])
-        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=4, dropRate=0.0, norm_type=norm_type)
+        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=4, dropRate=0.0, norm_type=config["norm_type"])
         n_features = resnet_base.nChannels
     elif config["dataset"] == 'cifar10':
         config["n_classes"] = 10
         config["decouple"] = False
         train_data, val_data, test_data = load_cifar(variety='10', data_aug=False, seed=config["seed"])
-        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0, norm_type=norm_type)
+        resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0, norm_type=config["norm_type"])
         n_features = resnet_base.nChannels
     elif config["dataset"] == 'ham10000':
         config["n_classes"] = 7
@@ -572,10 +568,8 @@ def main(config):
         config["l2d"] = "pop"
 
     if config["warmstart"]:
-        if config['l2d']=='single_maml':
-            warmstart_path = f"./pretrained/{config['dataset']}_frn/seed{str(config['seed'])}/default.pt"
-        else:    
-            warmstart_path = f"./pretrained/{config['dataset']}/seed{str(config['seed'])}/default.pt"
+        fn_aug = '' if config['norm_type']=='batchnorm' else '_frn'
+        warmstart_path = f"./pretrained/{config['dataset']}{fn_aug}/seed{str(config['seed'])}/default.pt"
         if not os.path.isfile(warmstart_path):
             raise FileNotFoundError('warmstart model checkpoint not found')
         resnet_base.load_state_dict(torch.load(warmstart_path, map_location=device))
@@ -656,9 +650,10 @@ def main(config):
     if config["mode"] == 'train':
         train(model, train_data, val_data_trgt, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_val, config)
         eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config)
+        # eval(model, val_data_trgt, val_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_val, config) # NOTE
     else: # evaluation on test data
-        # eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config) # NOTE
-        eval(model, val_data_trgt, val_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_val, config)
+        eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config)
+        # eval(model, val_data_trgt, val_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_val, config) # NOTE
 
 
 if __name__ == "__main__":
@@ -682,6 +677,7 @@ if __name__ == "__main__":
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
     parser.add_argument("--n_cntx_pts", type=int, default=50)
     parser.add_argument('--scoring_rule', choices=['val_loss', 'sys_acc'], default='val_loss')
+    parser.add_argument('--norm_type', choices=['batchnorm', 'frn'], default='batchnorm')
 
     ## NEW train args
     parser.add_argument("--dataset", choices=["cifar10", "cifar20_100", "ham10000", "gtsrb"], default="cifar10")
@@ -690,7 +686,7 @@ if __name__ == "__main__":
     parser.add_argument('--warmstart', action='store_true')
     parser.set_defaults(warmstart=False)
     parser.add_argument("--depth_embed", type=int, default=6)
-    parser.add_argument("--depth_reject", type=int, default=3)
+    parser.add_argument("--depth_reject", type=int, default=4)
     ## NEW maml
     parser.add_argument('--n_steps_maml', type=int, default=5)
     parser.add_argument('--lr_maml', type=float, default=1e-1)
