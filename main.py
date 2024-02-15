@@ -548,7 +548,7 @@ def main(config):
         config["n_classes"] = 43
         config["decouple"] = False
         train_data, val_data, test_data = load_gtsrb()
-        resnet_base = resnet20()
+        resnet_base = resnet20(norm_type=config["norm_type"])
         n_features = resnet_base.n_features
     else:
         raise ValueError('dataset unrecognised')
@@ -681,8 +681,8 @@ if __name__ == "__main__":
 
     ## NEW train args
     parser.add_argument("--dataset", choices=["cifar10", "cifar20_100", "ham10000", "gtsrb"], default="cifar10")
-    parser.add_argument("--val_batch_size", type=int, default=8) # 32 maml
-    parser.add_argument("--test_batch_size", type=int, default=1) # 32 maml
+    parser.add_argument("--val_batch_size", type=int, default=8)
+    parser.add_argument("--test_batch_size", type=int, default=1)
     parser.add_argument('--warmstart', action='store_true')
     parser.set_defaults(warmstart=False)
     parser.add_argument("--depth_embed", type=int, default=6)
