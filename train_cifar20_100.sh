@@ -5,12 +5,14 @@ p_out=$2
 mode=$3
 seed=$4
 flags=''
-if [ ! -z "$5" ]; then
-    flags="${flags} --n_steps_maml=${5}"
-fi
-if [ ! -z "$6" ]; then
-    flags="${flags} --lr_maml=${6}"
-fi
+# if [ ! -z "$5" ]; then
+#     flags="${flags} --n_steps_maml=${5}"
+# fi
+# if [ ! -z "$6" ]; then
+#     flags="${flags} --lr_maml=${6}"
+# fi
+flags="${flags} --n_steps_maml=2"
+flags="${flags} --lr_maml=1e-1"
 
 train_batch_size=128
 lr_wrn=1e-2
