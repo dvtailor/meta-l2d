@@ -11,7 +11,7 @@ flags=''
 # if [ ! -z "$6" ]; then
 #     flags="${flags} --lr_maml=${6}"
 # fi
-flags="${flags} --n_steps_maml=5"
+flags="${flags} --n_steps_maml=2" #5
 flags="${flags} --lr_maml=1e-1"
 
 train_batch_size=64
