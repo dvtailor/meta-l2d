@@ -28,9 +28,13 @@ depth_embed=5
 depth_reject=3
 norm_type=batchnorm
 loss_type=ova
+decouple=false
 
 if [ "${warmstart}" = true ]; then
     flags="${flags} --warmstart"
+fi
+if [ "${decouple}" = true ]; then
+    flags="${flags} --decouple"
 fi
 
 command="python main.py --l2d=${l2d} --p_out=${p_out} --mode=${mode} --seed=${seed}\

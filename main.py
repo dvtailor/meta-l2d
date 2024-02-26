@@ -528,25 +528,21 @@ def main(config):
     os.makedirs(config["ckp_dir"], exist_ok=True)
     if config["dataset"] == 'cifar20_100':
         config["n_classes"] = 20
-        config["decouple"] = True
         train_data, val_data, test_data = load_cifar(variety='20_100', data_aug=True, seed=config["seed"])
         resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=4, dropRate=0.0, norm_type=config["norm_type"])
         n_features = resnet_base.nChannels
     elif config["dataset"] == 'cifar10':
         config["n_classes"] = 10
-        config["decouple"] = False
         train_data, val_data, test_data = load_cifar(variety='10', data_aug=False, seed=config["seed"])
         resnet_base = WideResNetBase(depth=28, n_channels=3, widen_factor=2, dropRate=0.0, norm_type=config["norm_type"])
         n_features = resnet_base.nChannels
     elif config["dataset"] == 'ham10000':
         config["n_classes"] = 7
-        config["decouple"] = False
         train_data, val_data, test_data = load_ham10000()
         resnet_base = ResNet34()
         n_features = resnet_base.n_features
     elif config["dataset"] == 'gtsrb':
         config["n_classes"] = 43
-        config["decouple"] = False
         train_data, val_data, test_data = load_gtsrb()
         resnet_base = resnet20(norm_type=config["norm_type"])
         n_features = resnet_base.n_features
@@ -690,6 +686,8 @@ if __name__ == "__main__":
     ## NEW maml
     parser.add_argument('--n_steps_maml', type=int, default=5)
     parser.add_argument('--lr_maml', type=float, default=1e-1)
+    parser.add_argument('--decouple', action='store_true')
+    parser.set_defaults(decouple=False)
 
     ## EVAL
     # parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5])

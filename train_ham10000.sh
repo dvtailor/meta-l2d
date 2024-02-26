@@ -19,11 +19,14 @@ depth_embed=6
 depth_reject=4
 lr_finetune="1e-2 1e-3"
 scoring_rule=sys_acc
-
+decouple=false
 
 flags=''
 if [ "${warmstart}" = true ]; then
     flags="${flags} --warmstart"
+fi
+if [ "${decouple}" = true ]; then
+    flags="${flags} --decouple"
 fi
 
 command="python main.py --l2d=${l2d} --p_out=${p_out} --mode=${mode} --seed=${seed}\
