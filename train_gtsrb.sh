@@ -28,7 +28,7 @@ depth_embed=5
 depth_reject=3
 norm_type=batchnorm
 loss_type=ova
-decouple=false
+decouple=true #false
 
 if [ "${warmstart}" = true ]; then
     flags="${flags} --warmstart"
