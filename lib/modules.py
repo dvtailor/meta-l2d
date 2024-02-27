@@ -34,8 +34,8 @@ class ClassifierRejector(nn.Module):
         if decouple:
             self.base_model_rej = copy.deepcopy(self.base_model_clf)
             base_mdl_lst += [self.base_model_rej]
-        else:
-            self.base_model_rej = self.base_model_clf
+        # else:
+        #     self.base_model_rej = self.base_model_clf
 
         self.fc_clf = nn.Linear(n_features, num_classes)
         self.fc_clf.bias.data.zero_()
@@ -53,7 +53,7 @@ class ClassifierRejector(nn.Module):
         out = self.base_model_clf(x)
         logits_clf = self.fc_clf(out) # [B,K]
 
-        out = self.base_model_rej(x)
+        # out = self.base_model_rej(x)
         logit_rej = self.fc_rej(out) # [B,1]
 
         out = torch.cat([logits_clf,logit_rej], -1) # [B,K+1]
@@ -109,8 +109,8 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         if self.decouple:
             self.base_model_rej = copy.deepcopy(self.base_model)
             base_mdl_lst += [self.base_model_rej]
-        else:
-            self.base_model_rej = self.base_model
+        # else:
+        #     self.base_model_rej = self.base_model
         
         self.fc = nn.Linear(n_features, num_classes)
         self.fc.bias.data.zero_()
@@ -118,6 +118,9 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         self.embed_class = nn.Embedding(num_classes, dim_class_embed)    
         self.rejector = build_mlp(n_features+dim_hid, dim_hid, 1, depth_rej)
         self.rejector[-1].bias.data.zero_()
+
+        self.bn1=torch.nn.BatchNorm1d(7)
+        self.bn2=torch.nn.BatchNorm1d(1)
 
         if not self.with_attn:
             self.embed = build_mlp(n_features+dim_class_embed*2, dim_hid, dim_hid, depth_embed)
@@ -164,7 +167,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         else:
             embedding = self.encode(cntxt, x) # [E,B,H]
         
-        x_embed = self.base_model_rej(x) # [B,Dx]
+        x_embed = self.base_model(x) # [B,Dx]
         x_embed = x_embed.unsqueeze(0).repeat(n_experts,1,1) # [E,B,Dx]
 
         packed = torch.cat([x_embed,embedding], -1) # [E,B,Dx+H]
@@ -204,7 +207,7 @@ class ClassifierRejectorWithContextEmbedder(nn.Module):
         # for coupled architecture (shared WRN) backprop here could be detrimental to classifier performance; maybe OK for decoupled architecture
         if not self.decouple:
             with torch.no_grad():
-                xc_embed = self.base_model_rej(cntxt_xc) # [E*Nc,Dx]
+                xc_embed = self.base_model(cntxt_xc) # [E*Nc,Dx]
             xc_embed = xc_embed.detach()
         else:
             xc_embed = self.base_model_rej(cntxt_xc) # [E*Nc,Dx]

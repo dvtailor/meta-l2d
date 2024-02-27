@@ -539,7 +539,7 @@ def main(config):
     elif config["dataset"] == 'ham10000':
         config["n_classes"] = 7
         train_data, val_data, test_data = load_ham10000()
-        resnet_base = ResNet34()
+        resnet_base = ResNet34(int(config["n_classes"]))
         n_features = resnet_base.n_features
     elif config["dataset"] == 'gtsrb':
         config["n_classes"] = 43
@@ -563,13 +563,13 @@ def main(config):
             with_attn = True
         config["l2d"] = "pop"
 
-    if config["warmstart"]:
-        fn_aug = '' if config['norm_type']=='batchnorm' else '_frn'
-        warmstart_path = f"./pretrained/{config['dataset']}{fn_aug}/seed{str(config['seed'])}/default.pt"
-        if not os.path.isfile(warmstart_path):
-            raise FileNotFoundError('warmstart model checkpoint not found')
-        resnet_base.load_state_dict(torch.load(warmstart_path, map_location=device))
-        resnet_base = resnet_base.to(device)
+    # if config["warmstart"]:
+    #     fn_aug = '' if config['norm_type']=='batchnorm' else '_frn'
+    #     warmstart_path = f"./pretrained/{config['dataset']}{fn_aug}/seed{str(config['seed'])}/default.pt"
+    #     if not os.path.isfile(warmstart_path):
+    #         raise FileNotFoundError('warmstart model checkpoint not found')
+    #     resnet_base.load_state_dict(torch.load(warmstart_path, map_location=device))
+    #     resnet_base = resnet_base.to(device)
 
     if config["l2d"] == "pop":
         model = ClassifierRejectorWithContextEmbedder(resnet_base, num_classes=int(config["n_classes"]), n_features=n_features, \
