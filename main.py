@@ -690,8 +690,8 @@ if __name__ == "__main__":
     parser.set_defaults(decouple=False)
 
     ## EVAL
-    # parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5])
-    parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
+    parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5])
+    # parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
     # parser.add_argument('--p_cntx_inclusion', nargs='+', type=float, default=[0.,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]) # 1.0 # NB: rebuttal
 
     parser.add_argument('--finetune_single', action='store_true')
