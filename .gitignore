@@ -166,3 +166,5 @@ data/
 
 *.pdf
 *.png
+
+*.DS_Store
