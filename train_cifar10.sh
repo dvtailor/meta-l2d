@@ -26,8 +26,8 @@ epochs=100
 n_cntx_pts=50
 depth_embed=6
 depth_reject=4
-norm_type=batchnorm
-loss_type=ova
+norm_type=frn
+loss_type=softmax
 decouple=false
 
 if [ "${warmstart}" = true ]; then

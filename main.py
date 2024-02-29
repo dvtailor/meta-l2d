@@ -280,8 +280,10 @@ def train_epoch(iters,
                 local_model = copy.deepcopy(model)
                 local_model.train()
 
-                # freeze base network in finetuning
+                # freeze base network and classifier in train-time finetuning
                 for param in local_model.params.base.parameters():
+                    param.requires_grad = False
+                for param in local_model.fc_clf.parameters():
                     param.requires_grad = False
 
                 local_optim = torch.optim.SGD(local_model.parameters(), lr=lr_maml)
@@ -298,8 +300,10 @@ def train_epoch(iters,
                     local_optim.step()
                     local_optim.zero_grad()
 
-                # unfreeze base network for global update
+                # unfreeze base network and classifier for global update
                 for param in local_model.params.base.parameters():
+                    param.requires_grad = True
+                for param in local_model.fc_clf.parameters():
                     param.requires_grad = True
 
                 # NOTE: repeated above so should be combined.
