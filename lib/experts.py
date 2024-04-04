@@ -10,16 +10,9 @@ class SyntheticExpertOverlap():
         self.classes_oracle = classes_oracle
         if isinstance(self.classes_oracle, int):
             self.classes_oracle = [self.classes_oracle]
-        # if self.class_oracle is None:
-        #     self.class_oracle = random.randint(0, n_classes-1)
-        #     self.expert_static = False
         self.n_classes = n_classes
         self.p_in = p_in
         self.p_out = p_out
-
-    # def resample(self):
-    #     if not self.expert_static:
-    #         self.class_oracle = random.randint(0, self.n_classes-1)
 
     def __call__(self, images, labels, labels_sparse=None):
         batch_size = labels.size()[0]
@@ -60,12 +53,6 @@ class Cifar20SyntheticExpert():
         self.p_in = p_in
         self.p_out = p_out
 
-    # def resample(self):
-    #     if not self.expert_static:
-    #         self.classes_coarse = np.random.choice(np.arange(self.n_classes), size=self.n_oracle_superclass, replace=False)
-    #         indices_sparse = np.vstack([np.random.choice(np.arange(5), size=self.n_oracle_subclass, replace=False) for _ in range(len(self.classes_coarse))])
-    #         self.sparse_classes_oracle = coarse2sparse(self.classes_coarse)[np.arange(len(self.classes_coarse))[:,None], indices_sparse].flatten()            
-
     def __call__(self, images, labels, labels_sparse):
         batch_size = labels.size()[0]
         outs = [0] * batch_size
@@ -77,15 +64,12 @@ class Cifar20SyntheticExpert():
                         outs[i] = labels[i].item()
                     if coin_flip == 0:
                         outs[i] = random.randint(0, self.n_classes-1)
-                        # outs[i] = random.choice(list(set(range(self.n_classes)) - set(self.classes_coarse)))
                 else:
                     coin_flip = np.random.binomial(1, self.p_out)
                     if coin_flip == 1:
                         outs[i] = labels[i].item()
                     if coin_flip == 0:
                         outs[i] = random.randint(0, self.n_classes-1)
-                        # outs[i] = random.choice(list(set(range(self.n_classes)) - set(self.classes_coarse)))
             else: # predict randomly if not in superclasses, OR should this be anti-oracle (exclude true class) ?
                 outs[i] = random.randint(0, self.n_classes-1)
-                # outs[i] = random.choice(list(set(range(self.n_classes)) - set(self.classes_coarse)))
         return outs

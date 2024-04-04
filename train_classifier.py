@@ -184,15 +184,8 @@ def train(model,
 
         validation_loss = metrics["val_loss"]
 
-        # torch.save(model.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
-        # Additionally save the whole config dict
-        # with open(os.path.join(config["ckp_dir"], config["experiment_name"] + ".json"), "w") as f:
-        #     json.dump(config, f)
-
 
 def eval(model, test_data, config):
-    # model.load_state_dict(torch.load(os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"), map_location=device))
-    # model = model.to(device)
     kwargs = {'num_workers': 0, 'pin_memory': True}
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=config["test_batch_size"], shuffle=False, **kwargs)
     logger = get_logger(os.path.join(config["ckp_dir"], "eval.log"))
@@ -247,8 +240,6 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--train_batch_size", type=int, default=128)
     parser.add_argument("--test_batch_size", type=int, default=1)
-    # parser.add_argument("--epochs", type=int, default=200)
-    # parser.add_argument("--lr", type=float, default=0.1, help="learning rate.")
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     parser.add_argument("--experiment_name", type=str, default="default",
                             help="specify the experiment name. Checkpoints will be saved with this name.")

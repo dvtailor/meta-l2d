@@ -1,3 +1,4 @@
+# Modified from https://github.com/tung-nd/TNP-pytorch/blob/master/regression/models/attention.py
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

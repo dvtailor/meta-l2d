@@ -37,64 +37,19 @@ class MyVisionDataset(VisionDataset):
         return len(self.data)
 
 
-# May want to extend to allow variable context set sizes
-#  i.e. min_cntx_pts_per_class, max_cntx_pts_per_class
-# Since batch size in data loader is fixed, just specify max value and then take subset
 class ContextSampler():
-    def __init__(self, images, labels, transform, labels_sparse=None, n_cntx_pts=50, device='cpu', **kwargs): # cntx_pts_per_class=5, n_classes=10
-        # self.cntx_pts_per_class = cntx_pts_per_class
-        self.n_cntx_pts = n_cntx_pts #cntx_pts_per_class*n_classes
-        # self.n_classes = n_classes
+    def __init__(self, images, labels, transform, labels_sparse=None, n_cntx_pts=50, device='cpu', **kwargs):
+        self.n_cntx_pts = n_cntx_pts
         self.device = device
         self.with_additional_label = False
         if labels_sparse is not None:
             self.with_additional_label = True
 
-        # self.dataloader_lst = [] # separated by class
-        # self.data_iter_lst = []
-        # for cc in range(n_classes):
-        #     indices = np.where(labels==cc)[0]
-        #     labels_sparse_by_class = labels_sparse[indices] if self.with_additional_label else None
-        #     dataset = MyVisionDataset(images[indices], labels[indices], transform, labels_sparse_by_class)
-        #     dataloader = torch.utils.data.DataLoader(dataset, batch_size=cntx_pts_per_class, shuffle=True, drop_last=True, **kwargs)
-        #     self.dataloader_lst.append(dataloader)
-        #     self.data_iter_lst.append(iter(dataloader))
-
-        # Single dataloader version
         dataset = MyVisionDataset(images, labels, transform, labels_sparse)
         self.dataloader = torch.utils.data.DataLoader(dataset, batch_size=self.n_cntx_pts, shuffle=True, drop_last=True, **kwargs)
         self.data_iter = iter(self.dataloader)
 
     def _balanced_sample(self):
-        # input_lst = []
-        # target_lst = []
-        # if self.with_additional_label:
-        #     target_sparse_lst = []
-        # for cc in range(self.n_classes):
-        #     try:
-        #         data_batch = next(self.data_iter_lst[cc])
-        #     except StopIteration:
-        #         self.data_iter_lst[cc] = iter(self.dataloader_lst[cc])
-        #         data_batch = next(self.data_iter_lst[cc])
-        #     if self.with_additional_label:
-        #         input, target, target_sparse = data_batch
-        #         target_sparse_lst.append(target_sparse)
-        #     else:
-        #         input, target = data_batch
-        #     input_lst.append(input)
-        #     target_lst.append(target)
-        # perm = torch.randperm(self.cntx_pts_per_class*self.n_classes)
-        # input_all = torch.vstack(input_lst)[perm]
-        # target_all = torch.cat(target_lst)[perm]
-        # if self.with_additional_label:
-        #     target_sparse_all = torch.cat(target_sparse_lst)[perm]
-        #     input_all, target_all, target_sparse_all = input_all.to(self.device), target_all.to(self.device), target_sparse_all.to(self.device)
-        #     return input_all, target_all, target_sparse_all
-        # else:
-        #     input_all, target_all = input_all.to(self.device), target_all.to(self.device)
-        #     return input_all, target_all
-
-        # Single dataloader version
         try:
             data_batch = next(self.data_iter)
         except StopIteration:
@@ -112,16 +67,6 @@ class ContextSampler():
 
 
     def sample(self, n_experts=1):
-        # input_lst = []
-        # target_lst = []
-        # for _ in range(n_experts):
-        #     input, target = self._balanced_sample()
-        #     input_lst.append(input.unsqueeze(0))
-        #     target_lst.append(target.unsqueeze(0))
-        # cntx = AttrDict()
-        # cntx.xc = torch.vstack(input_lst)
-        # cntx.yc = torch.vstack(target_lst)
-        
         # Not resample for multiple experts (at train-time)
         cntx = AttrDict()
         if self.with_additional_label:
@@ -136,9 +81,6 @@ class ContextSampler():
         return cntx
     
     def reset(self):
-        # for cc in range(self.n_classes):
-        #     self.data_iter_lst[cc] = iter(self.dataloader_lst[cc])
-
         self.data_iter = iter(self.dataloader)
 
 
@@ -255,9 +197,6 @@ def load_gtsrb():
     test_images_all = np.vstack([np.array(transform_resize(test_dataset[i][0]))[None,:] for i in range(len(test_dataset))])
     test_targets_all = [test_dataset[i][1] for i in range(len(test_dataset))]
 
-    # images_all = np.vstack((train_images_all, test_images_all))
-    # targets_all = train_targets_all + test_targets_all
-
     # Extract 10,000 examples from full train set + seeded
     images_train, _, targets_train, _ = \
         train_test_split(train_images_all, train_targets_all, train_size=10000, random_state=0, stratify=train_targets_all)
@@ -274,23 +213,11 @@ def load_gtsrb():
 
 
 def load_ham10000():
-# def load_ham10000(data_aug=False):
     ds_path = ROOT + '/data/HAM10000/'
     train_dataset = torch.load(ds_path + 'train_data.pt')
     val_dataset = torch.load(ds_path + 'validation_data.pt')
     test_dataset = torch.load(ds_path + 'test_data.pt')
 
-    # if data_aug:
-    #     transform_train = transforms.Compose([
-    #         # transforms.ToTensor(),
-    #         transforms.Lambda(lambda x: F.pad(x.unsqueeze(0),
-    #                                           (4, 4, 4, 4), mode='reflect').squeeze()),
-    #         transforms.ToPILImage(),
-    #         transforms.RandomCrop(224),
-    #         transforms.RandomHorizontalFlip(),
-    #         transforms.ToTensor(),
-    #     ])
-    # else:
     transform_train = transforms.Compose([])
 
     transform_test = transforms.Compose([])

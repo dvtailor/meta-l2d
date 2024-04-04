@@ -306,7 +306,6 @@ def train_epoch(iters,
                 for param in local_model.fc_clf.parameters():
                     param.requires_grad = True
 
-                # NOTE: repeated above so should be combined.
                 m = torch.tensor(expert(input, target, target_sparse), device=device)
                 costs = (m==target).int()
 
@@ -385,9 +384,9 @@ def train(model,
     n_classes = config["n_classes"]
     kwargs = {'num_workers': 0, 'pin_memory': True}
     train_loader = torch.utils.data.DataLoader(train_dataset,
-                                               batch_size=config["train_batch_size"], shuffle=True, **kwargs) # drop_last=True
+                                               batch_size=config["train_batch_size"], shuffle=True, **kwargs)
     valid_loader = torch.utils.data.DataLoader(validation_dataset,
-                                               batch_size=config["val_batch_size"], shuffle=False, **kwargs) # shuffle=True, drop_last=True
+                                               batch_size=config["val_batch_size"], shuffle=False, **kwargs)
     model = model.to(device)
     cudnn.benchmark = True
 
@@ -460,18 +459,10 @@ def train(model,
 
         if validation_score < best_validation_score:
             best_validation_score = validation_score
-            # logger.info("Saving the model with system accuracy {}".format(metrics['sys_acc']))
             torch.save(model.state_dict(), os.path.join(config["ckp_dir"], config["experiment_name"] + ".pt"))
         # Additionally save the whole config dict
         with open(os.path.join(config["ckp_dir"], config["experiment_name"] + ".json"), "w") as f:
             json.dump(config, f)
-        # 	patience = 0
-        # else:
-        # 	patience += 1
-
-        # if patience >= config["patience"]:
-        # 	print("Early Exiting Training.", flush=True)
-        # 	break	
 
 
 def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, test_cntx_sampler, config):
@@ -515,7 +506,7 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
             metrics = evaluate(model, experts_test, loss_fn, test_cntx_sampler, config["n_classes"], test_loader, config, logger, budget, \
                                 best_finetune_steps, best_lr)
 
-    # # Only for l2d=pop
+    # # Rebuttal experiment (onyl for l2d=pop)
     # for budget in config["budget"]:
     #     for p_cntx_inclusion in config["p_cntx_inclusion"]:
     #         test_cntx_sampler.reset()
@@ -526,9 +517,8 @@ def eval(model, val_data, test_data, loss_fn, experts_test, val_cntx_sampler, te
 
 def main(config):
     set_seed(config["seed"])
-    # NB: consider extending export dir with loss_type, n_context_pts if this comparison becomes prominent
     config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}/p{str(config['p_out'])}_seed{str(config['seed'])}"
-    # config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}_lr{config['lr_maml']}_s{config['n_steps_maml']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # NOTE
+    # config["ckp_dir"] = f"./runs/{config['dataset']}/{config['loss_type']}/l2d_{config['l2d']}_lr{config['lr_maml']}_s{config['n_steps_maml']}/p{str(config['p_out'])}_seed{str(config['seed'])}" # tuning MAML
     os.makedirs(config["ckp_dir"], exist_ok=True)
     if config["dataset"] == 'cifar20_100':
         config["n_classes"] = 20
@@ -650,10 +640,10 @@ def main(config):
     if config["mode"] == 'train':
         train(model, train_data, val_data_trgt, loss_fn, experts_train, experts_test, cntx_sampler_train, cntx_sampler_val, config)
         eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config)
-        # eval(model, val_data_trgt, val_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_val, config) # NOTE
+        # eval(model, val_data_trgt, val_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_val, config) # tuning MAML
     else: # evaluation on test data
         eval(model, val_data_trgt, test_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_test, config)
-        # eval(model, val_data_trgt, val_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_val, config) # NOTE
+        # eval(model, val_data_trgt, val_data_trgt, loss_fn, experts_test, cntx_sampler_val, cntx_sampler_val, config) # tuning MAML
 
 
 if __name__ == "__main__":
@@ -661,25 +651,20 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=1071)
     parser.add_argument("--train_batch_size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=200)
-    # parser.add_argument("--patience", type=int, default=50, 
-    # 						help="number of patience steps for early stopping the training.")
     parser.add_argument("--lr_wrn", type=float, default=1e-1, help="learning rate for wrn.")
     parser.add_argument("--lr_other", type=float, default=1e-2, help="learning rate for non-wrn model components.")
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     parser.add_argument("--experiment_name", type=str, default="default",
                             help="specify the experiment name. Checkpoints will be saved with this name.")
     
-    ## NEW experiment setup
     parser.add_argument('--mode', choices=['train', 'eval'], default='train')
     parser.add_argument("--p_out", type=float, default=0.1) # [0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]
-    # parser.add_argument("--n_cntx_per_class", type=int, default=5) # moved to main()
     parser.add_argument('--l2d', choices=['single', 'single_maml', 'pop', 'pop_attn'], default='single')
     parser.add_argument('--loss_type', choices=['softmax', 'ova'], default='softmax')
     parser.add_argument("--n_cntx_pts", type=int, default=50)
     parser.add_argument('--scoring_rule', choices=['val_loss', 'sys_acc'], default='val_loss')
     parser.add_argument('--norm_type', choices=['batchnorm', 'frn'], default='batchnorm')
 
-    ## NEW train args
     parser.add_argument("--dataset", choices=["cifar10", "cifar20_100", "ham10000", "gtsrb"], default="cifar10")
     parser.add_argument("--val_batch_size", type=int, default=8)
     parser.add_argument("--test_batch_size", type=int, default=1)
@@ -687,24 +672,20 @@ if __name__ == "__main__":
     parser.set_defaults(warmstart=False)
     parser.add_argument("--depth_embed", type=int, default=6)
     parser.add_argument("--depth_reject", type=int, default=4)
-    ## NEW maml
+    
+    ## MAML
     parser.add_argument('--n_steps_maml', type=int, default=5)
     parser.add_argument('--lr_maml', type=float, default=1e-1)
     parser.add_argument('--decouple', action='store_true')
     parser.set_defaults(decouple=False)
 
     ## EVAL
-    # parser.add_argument('--budget', nargs='+', type=float, default=[0.01,0.02,0.05,0.1,0.2,0.5])
-    parser.add_argument('--budget', nargs='+', type=float, default=[1.0])
-    # parser.add_argument('--p_cntx_inclusion', nargs='+', type=float, default=[0.,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]) # 1.0 # NB: rebuttal
-
+    parser.add_argument('--budget', nargs='+', type=float, default=[1.0]) #[0.01,0.02,0.05,0.1,0.2,0.5,1.0]
+    # parser.add_argument('--p_cntx_inclusion', nargs='+', type=float, default=[0.,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]) # rebuttal experiment
     parser.add_argument('--finetune_single', action='store_true')
     parser.set_defaults(finetune_single=True)
     parser.add_argument('--n_finetune_steps', nargs='+', type=int, default=[1,2,5,10,20])
     parser.add_argument('--lr_finetune', nargs='+', type=float, default=[1e-1,1e-2])
 
-    # # Hack (remove after)
-    # parser.add_argument("--runs", type=str, default="runs")
-    
     config = parser.parse_args().__dict__
     main(config)
