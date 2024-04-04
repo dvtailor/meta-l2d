@@ -14,7 +14,9 @@ This is a PyTorch implementation of the following paper:
     </tr>
 </table>
 
-Environment setup:
+## Environment setup
+To create a conda environment `l2d` with all necessary dependencies run: `conda env create -f environment.yml` or use the following explicit instructions:
+
 ```
 conda create --name l2d python=3.9
 conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cuda=11.6 -c pytorch -c nvidia
