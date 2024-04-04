@@ -26,7 +26,7 @@ epochs=100
 n_cntx_pts=50
 depth_embed=6
 depth_reject=4
-norm_type=frn
+norm_type=batchnorm
 loss_type=softmax
 decouple=false
 

@@ -5,14 +5,14 @@ p_out=$2
 mode=$3
 seed=$4
 flags=''
-if [ ! -z "$5" ]; then
-    flags="${flags} --n_steps_maml=${5}"
-fi
-if [ ! -z "$6" ]; then
-    flags="${flags} --lr_maml=${6}"
-fi
-# flags="${flags} --n_steps_maml=5"
-# flags="${flags} --lr_maml=1e-2"
+# if [ ! -z "$5" ]; then
+#     flags="${flags} --n_steps_maml=${5}"
+# fi
+# if [ ! -z "$6" ]; then
+#     flags="${flags} --lr_maml=${6}"
+# fi
+flags="${flags} --n_steps_maml=5"
+flags="${flags} --lr_maml=1e-2"
 
 train_batch_size=64
 lr_wrn=1e-2
@@ -26,7 +26,7 @@ warmstart=false
 n_cntx_pts=50
 depth_embed=5
 depth_reject=3
-norm_type=frn
+norm_type=batchnorm
 loss_type=softmax
 decouple=false
 
