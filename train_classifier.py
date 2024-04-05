@@ -244,7 +244,7 @@ if __name__ == "__main__":
     parser.add_argument("--experiment_name", type=str, default="default",
                             help="specify the experiment name. Checkpoints will be saved with this name.")
     parser.add_argument("--dataset", choices=["cifar10", "cifar20_100", "ham10000"], default="cifar10")
-    parser.add_argument("--normlayer", choices=["batchnorm", "frn"], default="frn") # only for cifar/wrn
+    parser.add_argument("--normlayer", choices=["batchnorm", "frn"], default="batchnorm") # only for cifar/wrn
     
     config = parser.parse_args().__dict__
     main(config)
