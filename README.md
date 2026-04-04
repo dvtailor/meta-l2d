@@ -7,7 +7,7 @@ This is a PyTorch implementation of the following paper:
         <td>
             <strong>Learning to Defer to a Population: A Meta-Learning Approach</strong><br>
             Dharmesh Tailor, Aditya Patra, Rajeev Verma, Putra Manggala, Eric Nalisnick<br>
-            <strong>27th International Conference on Artificial Intelligence and Statistics (AISTATS 2014)</strong><br>
+            <strong>27th International Conference on Artificial Intelligence and Statistics (AISTATS 2024)</strong><br>
             <a href="https://proceedings.mlr.press/v238/tailor24a.html"><img alt="Paper" src="https://img.shields.io/badge/-Paper-gray"></a>
             <a href="https://arxiv.org/abs/2403.02683"><img alt="arxiv" src="https://img.shields.io/badge/-arxiv-gray" ></a>
         </td>
